@@ -1,0 +1,19 @@
+# --- Datasets & Videos ---
+datasets/
+*.mp4
+*.avi
+
+# --- Python (Backend & ML) ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+
+# --- Node & Frontend ---
+node_modules/
+dist/
+.env.local
+
+# --- OS Files ---
+.DS_Store
