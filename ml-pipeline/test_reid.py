@@ -31,10 +31,10 @@ def cosine_similarity(a, b):
 
 # Load your 4 images
 paths = {
-    "car_a_cam1": "sample_data/reid_test/car_a_cam1.jpg",
-    "car_a_cam2": "sample_data/reid_test/car_a_cam2.jpg",
-    "car_a_cam3": "sample_data/reid_test/car_a_cam3.jpg",
-    "car_b_cam1": "sample_data/reid_test/car_b_cam1.jpg",
+    "car_a_cam1": "sample_data/reid_test/car_a_cam1.jpeg",
+    "car_a_cam2": "sample_data/reid_test/car_a_cam2.jpeg",
+    "car_a_cam3": "sample_data/reid_test/car_a_cam3.jpeg",
+    "car_b_cam1": "sample_data/reid_test/car_b_cam1.jpeg",
 }
 
 embeddings = {name: get_embedding(path) for name, path in paths.items()}
