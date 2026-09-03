@@ -104,6 +104,15 @@ def process_frame(image_path):
         "plate": plate_text,
         "embedding": embedding
     }
+def analyze_vehicle(image_path):
+    result = process_frame(image_path)
+    if result is None:
+        return {"error": "No vehicle detected"}
+    return {
+        "plate": result["plate"],
+        "bounding_box": result["box"],
+        "embedding": result["embedding"].tolist()
+    }
 
 # ==========================================
 # EXECUTE AND TEST ALL 4 IMAGES
