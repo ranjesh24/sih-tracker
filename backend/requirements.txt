@@ -1,0 +1,35 @@
+# Backend dependencies — the packages listed in techspec.md section 2.2 and
+# nothing else. Transitive dependencies (SQLAlchemy, python-dotenv, ...) resolve
+# automatically and are intentionally not pinned here.
+#
+# Environment note: techspec.md 2.2 specifies Python 3.11; this venv is Python
+# 3.14.5 by project decision (every package we need already works on it).
+# Where a 2.2 pin has no 3.14 wheel, the version that installs is used and the
+# deviation is recorded inline.
+#
+#   [installed] = present in this venv and imports on 3.14.5 (verified)
+#   [pending]   = session-2 layer, not installed this session; version follows
+#                 the 2.2 x-line but is not yet verified on 3.14
+
+# --- verified installed this session ---
+sqlmodel==0.0.42            # [installed] matches 2.2
+pydantic==2.13.5            # [installed] matches 2.2 (2.13.x)
+pydantic-settings==2.15.0   # [installed] matches 2.2 (2.x)
+faiss-cpu==1.15.0           # [installed] matches 2.2 (1.15.x)
+networkx==3.6.1             # [installed] matches 2.2 (3.6.x)
+numpy==2.5.2                # [installed] DEVIATION: 2.2 pins 1.26.x, which has no
+                            #   3.14 wheel; faiss-cpu 1.15 requires numpy 2.x anyway
+pytest==9.1.1               # [installed] DEVIATION: 2.2 pins 8.x; 9.1.1 is what
+                            #   installs on 3.14
+rapidfuzz==3.14.1           # [installed] matches 2.2 (3.14.x)
+fastapi==0.141.0            # [installed] matches 2.2 (0.141.x)
+uvicorn[standard]==0.52.0   # [installed] matches 2.2 (0.52.x)
+httpx==0.28.1               # [installed] matches 2.2 (0.28.x)
+
+# --- not needed yet on 3.14: not installed this session ---
+# alembic: SKIPPED for this timeline (SQLModel.metadata.create_all is used).
+alembic==1.19.0             # [pending] 2.2: 1.19.x — not installed (migrations out of scope)
+python-jose[cryptography]==3.5.0  # [pending] 2.2: 3.5.x — auth cut this session
+bcrypt==4.2.1               # [pending] 2.2: 4.2.x — auth cut (NOT 5.x; no passlib)
+python-multipart==0.0.20    # [pending] 2.2: 0.0.x — no form/file uploads yet
+pytest-asyncio==0.24.0      # [pending] 2.2: grouped with pytest — sync TestClient used
