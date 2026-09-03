@@ -1,0 +1,68 @@
+# ml-pipeline dependencies. Pins from techspec.md section 2.1.
+#
+# Python 3.11.x. This environment is deliberately separate from backend/venv:
+# a PyTorch upgrade here must not be able to break the API server.
+#
+#   python3.11 -m venv venv && source venv/bin/activate
+#   pip install -r requirements.txt
+#
+# -----------------------------------------------------------------------------
+# ACCEPTED DEVIATION FROM techspec.md section 2.1 — decided, do not reopen.
+#
+#   Dependency   Spec pin (section 2.1)   Installed
+#   numpy        1.26.x                   2.4.6
+#   opencv       4.9.0.80 (headless)      5.0.0
+#
+# Ultralytics 8.4.x is the hard requirement: it is the detector and tracker, and
+# it resolves numpy>=2 and opencv>=5. numpy and opencv are transitive here, not
+# chosen, so the two spec pins cannot both hold alongside it. Ultralytics wins;
+# the pins give way.
+#
+# The section 2.1 note warning off the OpenCV 5.x line still describes a real
+# hazard — OpenCV 5 changed several Python API defaults, and tutorials and Stack
+# Overflow answers for this video code assume 4.x. Treat any cv2 call that
+# behaves unexpectedly as a 4.x-vs-5.x default change before assuming a logic bug.
+#
+# This mirrors the accepted backend deviation (Python 3.14.5, faiss-cpu 1.15.0).
+# -----------------------------------------------------------------------------
+
+# --- Deep learning -----------------------------------------------------------
+# PyTorch 2.x. Install the build matching the host CUDA version; the default
+# PyPI wheel is correct for CPU-only and Apple Silicon hosts.
+torch>=2.0,<3.0
+
+# --- Detection and tracking --------------------------------------------------
+# YOLOv8s + ByteTrack. LICENCE FLAG: Ultralytics is AGPL-3.0. Acceptable for a
+# hackathon and a public repository; not for closed commercial use. The
+# detector sits behind the Detector interface so an Apache-2.0 backbone
+# (RT-DETR, YOLOX) drops in without touching the rest of the pipeline.
+ultralytics>=8.4,<8.5
+
+# Linear-assignment solver used by ByteTrack's association step.
+lap>=0.5,<0.6
+
+# --- Plate OCR ---------------------------------------------------------------
+# EasyOCR per the TASK-000 amendment. PaddleOCR raised NotImplementedError in
+# testing, so paddlepaddle/PaddleOCR are dropped.
+easyocr==1.7.2
+
+# --- Video and arrays --------------------------------------------------------
+# Both ranges are widened from the section 2.1 pins to whatever Ultralytics 8.4.x
+# resolves. See the ACCEPTED DEVIATION block at the top of this file.
+opencv-python-headless>=4.9
+numpy>=1.26
+
+# --- Client and configuration ------------------------------------------------
+httpx>=0.28,<0.29
+pydantic-settings>=2.0,<3.0
+
+# --- Testing -----------------------------------------------------------------
+# pytest 8.x, matching the pin in techspec.md section 2.2. Section 2.1 carries
+# no testing row; this is the one addition beyond that table.
+pytest>=8.0,<9.0
+
+# --- Re-ID backbone ----------------------------------------------------------
+# OSNet x1.0. Installed from source deliberately: PyPI's `torchreid` 0.2.5 is an
+# unmaintained different package, not this library (techspec.md section 2.1).
+# This line builds from git and is slow; it is the only source install here.
+torchreid @ git+https://github.com/KaiyangZhou/deep-person-reid.git
