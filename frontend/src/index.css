@@ -1,0 +1,87 @@
+@import "tailwindcss";
+@import "./styles/tokens.css";
+
+@theme {
+  --color-surface-base: var(--surface-base);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-overlay: var(--surface-overlay);
+  --color-surface-sunken: var(--surface-sunken);
+  --color-surface-hover: var(--surface-hover);
+  --color-surface-active: var(--surface-active);
+
+  --color-border-subtle: var(--border-subtle);
+  --color-border-default: var(--border-default);
+  --color-border-strong: var(--border-strong);
+
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
+  --color-text-inverse: var(--text-inverse);
+
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-active: var(--accent-active);
+  --color-accent-tint: var(--accent-tint);
+  --color-accent-text: var(--accent-text);
+
+  --color-status-confirmed: var(--status-confirmed);
+  --color-status-probable: var(--status-probable);
+  --color-status-ambiguous: var(--status-ambiguous);
+  --color-status-rejected: var(--status-rejected);
+  --color-status-offline: var(--status-offline);
+
+  --color-status-confirmed-tint: var(--status-confirmed-tint);
+  --color-status-probable-tint: var(--status-probable-tint);
+  --color-status-ambiguous-tint: var(--status-ambiguous-tint);
+  --color-status-rejected-tint: var(--status-rejected-tint);
+  --color-status-offline-tint: var(--status-offline-tint);
+
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+/* Base resets & typography per design.md §5 */
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  background-color: var(--surface-base);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-feature-settings: "tnum" 1, "cv05" 1;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Scrollbar styling for dense control room panels */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--surface-sunken);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-default);
+  border-radius: var(--radius-sm);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-strong);
+}
+
+/* Flash animation for new sightings on camera tile (design.md §7) */
+@keyframes tile-flash {
+  0% { border-color: var(--accent); }
+  100% { border-color: var(--border-default); }
+}
+
+.animate-tile-flash {
+  animation: tile-flash 600ms ease-out forwards;
+}
+
+/* Dark theme filter for OpenStreetMap tiles (zero API key, zero watermark) */
+.dark-tiles .leaflet-tile {
+  filter: brightness(0.6) invert(1) contrast(3) hue-rotate(200deg) saturate(0.2) brightness(0.8);
+}
+
