@@ -4,6 +4,7 @@ import { CameraTile } from '../components/camera/CameraTile';
 import { EventFeedRow } from '../components/camera/EventFeedRow';
 import type { LiveEventItem } from '../hooks/usePollingSightings';
 import { Video, AlertCircle } from 'lucide-react';
+import { useUploadStore } from '../stores/uploadStore';
 
 interface LiveWallPageProps {
   cameras: Camera[];
@@ -17,6 +18,7 @@ export const LiveWallPage: React.FC<LiveWallPageProps> = ({
   flashingCameraCode,
 }) => {
   const [selectedCameraCode, setSelectedCameraCode] = useState<string | null>(null);
+  const getVideoUrl = useUploadStore(s => s.getVideoUrl);
 
   const handleTileClick = (cameraCode: string) => {
     setSelectedCameraCode((prev) => (prev === cameraCode ? null : cameraCode));
@@ -73,6 +75,7 @@ export const LiveWallPage: React.FC<LiveWallPageProps> = ({
                 isFlashing={flashingCameraCode === camera.code}
                 isSelected={selectedCameraCode === camera.code}
                 onClick={() => handleTileClick(camera.code)}
+                videoUrl={getVideoUrl(camera.code)}
               />
             ))}
           </div>

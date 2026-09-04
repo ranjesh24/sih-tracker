@@ -82,7 +82,8 @@ def _accepted_decision(
 def get_trajectory(
     vehicle_id: str, session: Session = Depends(get_session)
 ) -> TrajectoryRead:
-    if vehicle_repo.get_by_id(session, vehicle_id) is None:
+    vehicle = vehicle_repo.get_by_id(session, vehicle_id)
+    if vehicle is None:
         raise NotFoundError(f"No vehicle with id {vehicle_id}.")
     sightings: list[Sighting] = list(sighting_repo.get_by_vehicle(session, vehicle_id))
     cameras: dict[str, Camera] = {c.id: c for c in camera_repo.get_all_cameras(session)}
@@ -120,5 +121,10 @@ def get_trajectory(
         )
 
     return TrajectoryRead(
-        vehicle_id=vehicle_id, points=points, polyline=polyline, hops=hops
+        vehicle_id=vehicle_id,
+        display_ref=vehicle.display_ref,
+        canonical_plate=vehicle.canonical_plate,
+        points=points,
+        polyline=polyline,
+        hops=hops,
     )

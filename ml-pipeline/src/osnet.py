@@ -445,7 +445,6 @@ def init_pretrained_weights(model, key=''):
     """
     import os
     import errno
-    import gdown
     from collections import OrderedDict
 
     def _get_torch_home():
@@ -477,9 +476,10 @@ def init_pretrained_weights(model, key=''):
     cached_file = os.path.join(model_dir, filename)
 
     if not os.path.exists(cached_file):
+        import gdown
         gdown.download(pretrained_urls[key], cached_file, quiet=False)
 
-    state_dict = torch.load(cached_file)
+    state_dict = torch.load(cached_file, map_location="cpu", weights_only=True)
     model_dict = model.state_dict()
     new_state_dict = OrderedDict()
     matched_layers, discarded_layers = [], []

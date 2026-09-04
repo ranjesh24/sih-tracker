@@ -43,20 +43,6 @@ export const MOCK_CAMERAS: Camera[] = [
     created_at: '2026-09-01T08:00:00Z',
     updated_at: '2026-09-01T08:00:00Z',
   },
-  {
-    id: 'cam-04',
-    code: 'CAM-04',
-    name: 'Kargil Chowk',
-    location_label: 'Ashok Rajpath Junction',
-    latitude: 25.6251,
-    longitude: 85.1528,
-    heading_deg: 270,
-    stream_uri: 'datasets/videos/cam04.mp4',
-    is_active: true,
-    last_seen_at: '2026-09-04T00:28:12Z',
-    created_at: '2026-09-01T08:00:00Z',
-    updated_at: '2026-09-01T08:00:00Z',
-  },
 ];
 
 export const MOCK_VEHICLES: Vehicle[] = [

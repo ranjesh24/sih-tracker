@@ -62,7 +62,11 @@ pydantic-settings>=2.0,<3.0
 pytest>=8.0,<9.0
 
 # --- Re-ID backbone ----------------------------------------------------------
-# OSNet x1.0. Installed from source deliberately: PyPI's `torchreid` 0.2.5 is an
-# unmaintained different package, not this library (techspec.md section 2.1).
-# This line builds from git and is slow; it is the only source install here.
-torchreid @ git+https://github.com/KaiyangZhou/deep-person-reid.git
+# OSNet x1.0 architecture is vendored locally in src/osnet.py — only the
+# inference-time model definition, not the full torchreid training stack.
+# torchreid is NOT installed: its setup.py pulls in tensorboard and the full
+# training stack, the install is slow and broken in some environments, and only
+# the forward-pass model definition is needed. Weights are downloaded separately
+# by scripts/download_models.py via the vendored module.
+# See: embedder.py module docstring for rationale.
+gdown>=5.0

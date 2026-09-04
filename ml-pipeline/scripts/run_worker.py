@@ -52,7 +52,7 @@ from src.ingest_client import (  # noqa: E402
 )
 from src.plate_reader import PlateRead, PlateReader  # noqa: E402
 from src.tracker import TrackletBuffer  # noqa: E402
-from src.types import Detection, Sighting, Tracklet, VehicleClass  # noqa: E402
+from src.types import Detection, FrameSample, Sighting, Tracklet, VehicleClass  # noqa: E402
 from src.video_source import VideoSource, to_iso8601_utc  # noqa: E402
 
 # Vehicle classes the sightings table accepts (schema.md section 3.6). Anything
@@ -152,6 +152,7 @@ def write_plate_crop(
 
 def build_sighting(
     tracklet: Tracklet,
+    best_shots: tuple[FrameSample, ...],
     plate_read: PlateRead,
     embedding_vector: list[float],
     crop_path: Path,
@@ -160,13 +161,9 @@ def build_sighting(
 ) -> Sighting:
     """Assemble a Sighting from a finalised tracklet and its tier-2 results.
 
-    `received_at`, `vehicle_id`, `resolution_status`, `match_method` and
-    `match_score` are left at their defaults: the backend owns them, and
-    `received_at` in particular must come from the server clock because its only
-    purpose is detecting worker clock drift (schema.md section 3.6).
-
     Args:
         tracklet: The finalised tracklet.
+        best_shots: Pre-computed best shots (avoids recomputing).
         plate_read: Result of plate OCR over the best shots.
         embedding_vector: 512-D unit-norm appearance embedding.
         crop_path: Absolute path of the written vehicle crop.
@@ -176,7 +173,6 @@ def build_sighting(
     Returns:
         A Sighting ready to emit.
     """
-    best_shots = select_best_shots(tracklet.samples, settings)
     best_sample = best_shots[0]
     detection = best_sample.detection
 
@@ -353,7 +349,7 @@ def emit_tracklet(
     plate_crop_path = write_plate_crop(tracklet, plate_read, settings)
 
     sighting = build_sighting(
-        tracklet, plate_read, embedding_vector, crop_path, plate_crop_path, settings
+        tracklet, best_shots, plate_read, embedding_vector, crop_path, plate_crop_path, settings
     )
     client.send(sighting)
 

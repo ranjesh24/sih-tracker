@@ -19,8 +19,7 @@ faiss-cpu==1.15.0           # [installed] matches 2.2 (1.15.x)
 networkx==3.6.1             # [installed] matches 2.2 (3.6.x)
 numpy==2.5.2                # [installed] DEVIATION: 2.2 pins 1.26.x, which has no
                             #   3.14 wheel; faiss-cpu 1.15 requires numpy 2.x anyway
-pytest==9.1.1               # [installed] DEVIATION: 2.2 pins 8.x; 9.1.1 is what
-                            #   installs on 3.14
+pytest==8.3.5               # [installed] 8.x line needed for pytest-asyncio 0.24
 rapidfuzz==3.14.1           # [installed] matches 2.2 (3.14.x)
 fastapi==0.141.0            # [installed] matches 2.2 (0.141.x)
 uvicorn[standard]==0.52.0   # [installed] matches 2.2 (0.52.x)

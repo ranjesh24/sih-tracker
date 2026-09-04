@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { Video, MapPin, FileSearch } from 'lucide-react';
+import { Video, MapPin, FileSearch, Upload, Route } from 'lucide-react';
 import { ConnectionIndicator, type ConnectionStatus } from './ConnectionIndicator';
 import { cn } from '../../lib/cn';
 
@@ -87,6 +87,36 @@ export const TopBar: React.FC<TopBarProps> = ({
           >
             <FileSearch className="w-3.5 h-3.5" />
             <span>Evidence panel</span>
+          </NavLink>
+
+          <NavLink
+            to="/sim"
+            className={({ isActive }) =>
+              cn(
+                'flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-sm)] text-xs font-medium transition-none',
+                isActive
+                  ? 'bg-[var(--surface-hover)] text-[var(--text-primary)] border-b-2 border-[var(--accent)]'
+                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-hover)]'
+              )
+            }
+          >
+            <Route className="w-3.5 h-3.5" />
+            <span>Simulation</span>
+          </NavLink>
+
+          <NavLink
+            to="/upload"
+            className={({ isActive }) =>
+              cn(
+                'flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-sm)] text-xs font-medium transition-none',
+                isActive
+                  ? 'bg-[var(--surface-hover)] text-[var(--text-primary)] border-b-2 border-[var(--accent)]'
+                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-hover)]'
+              )
+            }
+          >
+            <Upload className="w-3.5 h-3.5" />
+            <span>Upload</span>
           </NavLink>
         </nav>
       </div>

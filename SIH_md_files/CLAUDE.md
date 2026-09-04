@@ -52,7 +52,7 @@ Full text in `docs/rules.md` §1. Summarised because they matter most:
 ```
 ml-pipeline/  (Python 3.11, PyTorch, CUDA — heavy venv)
    one worker process per camera
-   frame → YOLOv8n → ByteTrack → tracklet
+   frame → YOLOv8s → ByteTrack → tracklet
    tracklet ends → best-shot → plate OCR + OSNet 512-D embedding
    → POST /api/v1/ingest/sightings
                     │

@@ -13,6 +13,7 @@ class VehicleRead(BaseModel):
     id: str
     display_ref: str
     canonical_plate: Optional[str]
+    plate_confidence: Optional[float]
     plate_is_valid: bool
     vehicle_class: Optional[str]
     dominant_color: Optional[str]
@@ -21,6 +22,9 @@ class VehicleRead(BaseModel):
     first_seen_at: Optional[str]
     last_seen_at: Optional[str]
     status: str
+    merged_into_id: Optional[str]
+    created_at: str
+    updated_at: str
 
     @classmethod
     def from_model(cls, vehicle: Vehicle) -> "VehicleRead":
@@ -28,6 +32,7 @@ class VehicleRead(BaseModel):
             id=vehicle.id,
             display_ref=vehicle.display_ref,
             canonical_plate=vehicle.canonical_plate,
+            plate_confidence=vehicle.plate_confidence,
             plate_is_valid=vehicle.plate_is_valid,
             vehicle_class=vehicle.vehicle_class,
             dominant_color=vehicle.dominant_color,
@@ -36,6 +41,9 @@ class VehicleRead(BaseModel):
             first_seen_at=vehicle.first_seen_at,
             last_seen_at=vehicle.last_seen_at,
             status=vehicle.status,
+            merged_into_id=vehicle.merged_into_id,
+            created_at=vehicle.created_at,
+            updated_at=vehicle.updated_at,
         )
 
 
@@ -62,6 +70,8 @@ class TrajectoryRead(BaseModel):
     """A vehicle's ordered path, polyline and per-hop decisions."""
 
     vehicle_id: str
+    display_ref: str
+    canonical_plate: Optional[str]
     points: list[TrajectoryPoint]
     polyline: list[list[float]]
     hops: list[TrajectoryHop]

@@ -406,7 +406,15 @@ class IdentityResolver:
         self._refresh_counters(vehicle_id, sighting.first_frame_at)
 
     def _new_identity(self, sighting: Sighting) -> str:
-        vehicle = Vehicle(id=new_id(), status="active", display_ref="")
+        vehicle = Vehicle(
+            id=new_id(),
+            status="active",
+            display_ref="",
+            vehicle_class=sighting.vehicle_class,
+            canonical_plate=sighting.plate_text_norm if sighting.plate_is_valid else None,
+            plate_confidence=sighting.plate_confidence if sighting.plate_is_valid else None,
+            plate_is_valid=sighting.plate_is_valid,
+        )
         hex_chars = vehicle.id.replace("-", "")[:_DISPLAY_REF_HEX_CHARS].upper()
         vehicle.display_ref = f"#{hex_chars}"
         vehicle_repo.create(self._session, vehicle)
@@ -426,7 +434,7 @@ class IdentityResolver:
             first_seen = min(frames)
             last_seen = max(frames)
             cameras = {s.camera_id for s in sightings}
-        else:  # defensive; assignment always flushes at least one row
+        else:
             first_seen = last_seen = fallback_first_frame_at
             cameras = set()
         vehicle_repo.update_counters(
@@ -437,6 +445,29 @@ class IdentityResolver:
             last_seen_at=last_seen,
             first_seen_at=first_seen,
         )
+        # Promote the best plate and class from sightings to the vehicle row.
+        self._refresh_plate_and_class(vehicle_id, sightings)
+
+    def _refresh_plate_and_class(
+        self, vehicle_id: str, sightings: list
+    ) -> None:
+        vehicle = vehicle_repo.get_by_id(self._session, vehicle_id)
+        if vehicle is None:
+            return
+        best_plate_sighting = max(
+            (s for s in sightings if s.plate_is_valid and s.plate_text_norm),
+            key=lambda s: s.plate_confidence or 0.0,
+            default=None,
+        )
+        if best_plate_sighting is not None:
+            vehicle.canonical_plate = best_plate_sighting.plate_text_norm
+            vehicle.plate_confidence = best_plate_sighting.plate_confidence
+            vehicle.plate_is_valid = True
+        classes = [s.vehicle_class for s in sightings if s.vehicle_class]
+        if classes:
+            vehicle.vehicle_class = max(set(classes), key=classes.count)
+        self._session.add(vehicle)
+        self._session.flush()
 
     # -- entry point ----------------------------------------------------------
 

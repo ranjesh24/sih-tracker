@@ -124,7 +124,7 @@ def update_counters(
     vehicle.sighting_count = sighting_count
     vehicle.camera_count = camera_count
     vehicle.last_seen_at = last_seen_at
-    if first_seen_at is not None and vehicle.first_seen_at is None:
+    if first_seen_at is not None:
         vehicle.first_seen_at = first_seen_at
     session.add(vehicle)
     session.flush()

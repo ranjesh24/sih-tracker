@@ -4,6 +4,8 @@ import { TopBar } from './components/common/TopBar';
 import { LiveWallPage } from './pages/LiveWallPage';
 import { TrajectoryPage } from './pages/TrajectoryPage';
 import { EvidencePage } from './pages/EvidencePage';
+import { UploadPage } from './pages/UploadPage';
+import { SimulationPage } from './pages/SimulationPage';
 import { usePollingSightings } from './hooks/usePollingSightings';
 import { api } from './lib/api';
 import type { Camera } from './types/api';
@@ -52,6 +54,8 @@ export const App: React.FC = () => {
             />
             <Route path="/vehicles/:vehicleId" element={<TrajectoryPage />} />
             <Route path="/evidence/:vehicleId" element={<EvidencePage />} />
+            <Route path="/upload" element={<UploadPage />} />
+            <Route path="/sim" element={<SimulationPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>

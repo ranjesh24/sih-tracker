@@ -16,7 +16,7 @@ from sqlmodel import Session
 
 import app.db.session as db_session
 from app.api.deps import get_index, get_session
-from app.api.v1 import ingest, sightings, vehicles, ws
+from app.api.v1 import cameras, ingest, sightings, upload, vehicles, ws
 from app.core.config import get_settings
 from app.core.constants import API_V1_PREFIX
 from app.core.exceptions import REQUEST_ID_ATTR, register_exception_handlers
@@ -71,6 +71,8 @@ app.add_middleware(
 
 register_exception_handlers(app)
 
+app.include_router(cameras.router, prefix=API_V1_PREFIX)
+app.include_router(upload.router, prefix=API_V1_PREFIX)
 app.include_router(ingest.router, prefix=API_V1_PREFIX)
 app.include_router(vehicles.router, prefix=API_V1_PREFIX)
 app.include_router(sightings.router, prefix=API_V1_PREFIX)

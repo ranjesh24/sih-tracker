@@ -2,13 +2,30 @@
 datasets/
 *.mp4
 *.avi
+*.mkv
+*.mov
+*.webm
+
+# --- Model weights ---
+ml-pipeline/models/*.pth
+ml-pipeline/models/*.pt
+!ml-pipeline/models/.gitkeep
+
+# --- Uploaded files ---
+backend/data/uploads/
+backend/data/crops/
+backend/data/*.db
+backend/data/*.db-wal
+backend/data/*.db-shm
 
 # --- Python (Backend & ML) ---
 __pycache__/
 *.py[cod]
+*.pyo
 .venv/
 venv/
 .env
+*.egg-info/
 
 # --- Node & Frontend ---
 node_modules/
@@ -16,5 +33,13 @@ dist/
 .vite/
 .env.local
 
+# --- IDE ---
+.idea/
+.vscode/
+*.swp
+*.swo
+
 # --- OS Files ---
 .DS_Store
+Thumbs.db
+Desktop.ini

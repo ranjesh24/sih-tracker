@@ -36,6 +36,7 @@ first and normalising once is both cheaper and more faithful.
 from __future__ import annotations
 
 import os
+import shutil
 from pathlib import Path
 
 import cv2
@@ -129,6 +130,8 @@ class VehicleEmbedder:
         self._settings = settings if settings is not None else get_settings()
         self._device = _resolve_torch_device(self._settings)
 
+        self._ensure_cached_weights()
+
         model = osnet_x1_0(
             num_classes=OSNET_PLACEHOLDER_CLASS_COUNT,
             pretrained=True,
@@ -142,6 +145,17 @@ class VehicleEmbedder:
         std = torch.tensor(IMAGENET_STD_RGB, dtype=torch.float32).view(1, 3, 1, 1)
         self._mean_rgb = mean.to(self._device)
         self._std_rgb = std.to(self._device)
+
+    @staticmethod
+    def _ensure_cached_weights() -> None:
+        """Copy local model weights to the torch cache if not already there."""
+        cache_path = osnet_checkpoint_path()
+        if cache_path.is_file():
+            return
+        local_weights = Path(__file__).resolve().parent.parent / "models" / OSNET_CHECKPOINT_FILENAME
+        if local_weights.is_file():
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(local_weights, cache_path)
 
     @staticmethod
     def _verify_weights_are_pretrained(model: torch.nn.Module) -> None:
@@ -171,7 +185,7 @@ class VehicleEmbedder:
             )
 
         try:
-            checkpoint = torch.load(checkpoint_path, map_location="cpu")
+            checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
         except (OSError, RuntimeError, EOFError) as exc:
             raise EmbedderError(
                 f"OSNet checkpoint at {checkpoint_path} could not be read: {exc}"

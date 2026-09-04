@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef, useEffect } from 'react';
 import type { Camera } from '../../types/api';
 import { cn } from '../../lib/cn';
 import { Video } from 'lucide-react';
@@ -10,6 +10,7 @@ interface CameraTileProps {
   onClick?: () => void;
   recentTrackId?: number;
   recentPlate?: string | null;
+  videoUrl?: string | null;
 }
 
 export const CameraTile: React.FC<CameraTileProps> = ({
@@ -19,7 +20,16 @@ export const CameraTile: React.FC<CameraTileProps> = ({
   onClick,
   recentTrackId,
   recentPlate,
+  videoUrl,
 }) => {
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    if (videoUrl && videoRef.current) {
+      videoRef.current.play().catch(() => {});
+    }
+  }, [videoUrl]);
+
   return (
     <div
       onClick={onClick}
@@ -32,35 +42,42 @@ export const CameraTile: React.FC<CameraTileProps> = ({
           : 'border-[var(--border-default)] hover:border-[var(--border-strong)]'
       )}
     >
-      {/* Simulated Video Canvas / Stream Frame */}
+      {/* Video feed or placeholder */}
       <div className="absolute inset-0 bg-[var(--surface-sunken)] flex items-center justify-center">
-        {/* Subtle grid pattern to represent camera video matrix */}
-        <div
-          className="absolute inset-0 opacity-15"
-          style={{
-            backgroundImage:
-              'linear-gradient(to right, var(--border-subtle) 1px, transparent 1px), linear-gradient(to bottom, var(--border-subtle) 1px, transparent 1px)',
-            backgroundSize: '24px 24px',
-          }}
-        />
+        {videoUrl ? (
+          <video
+            ref={videoRef}
+            src={videoUrl}
+            muted
+            loop
+            playsInline
+            className="absolute inset-0 w-full h-full object-cover"
+          />
+        ) : (
+          <>
+            <div
+              className="absolute inset-0 opacity-15"
+              style={{
+                backgroundImage:
+                  'linear-gradient(to right, var(--border-subtle) 1px, transparent 1px), linear-gradient(to bottom, var(--border-subtle) 1px, transparent 1px)',
+                backgroundSize: '24px 24px',
+              }}
+            />
+            <div className="relative flex flex-col items-center gap-2 text-[var(--text-muted)] opacity-60">
+              <Video className="w-8 h-8 stroke-[1.2]" />
+              <span className="font-mono text-xs tracking-wider">{camera.code} FEED</span>
+            </div>
+          </>
+        )}
 
-        {/* Camera stream placeholder representation */}
-        <div className="relative flex flex-col items-center gap-2 text-[var(--text-muted)] opacity-60">
-          <Video className="w-8 h-8 stroke-[1.2]" />
-          <span className="font-mono text-xs tracking-wider">{camera.code} FEED</span>
-        </div>
-
-        {/* Simulated Detection Bounding Box Overlay per design.md §4 */}
+        {/* Detection Bounding Box Overlay */}
         <div
           className="absolute border-2 border-[var(--detection-box)] pointer-events-none"
           style={{ top: '30%', left: '35%', width: '30%', height: '40%' }}
         >
-          {/* Track ID Label */}
           <div className="absolute -top-5 left-0 bg-[var(--detection-label-bg)] px-1.5 py-0.5 text-[10px] font-mono text-[var(--text-primary)] rounded-[1px] border border-[var(--border-subtle)] whitespace-nowrap">
             ID:{recentTrackId || 42} • CAR 94%
           </div>
-
-          {/* Plate Sub-box */}
           <div
             className="absolute bottom-2 left-1/4 w-1/2 h-5 border border-dashed border-[var(--detection-plate-box)] bg-black/40 flex items-center justify-center"
           >

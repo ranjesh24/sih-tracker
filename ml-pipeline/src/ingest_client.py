@@ -95,18 +95,22 @@ def sighting_to_dict(sighting: Sighting) -> dict[str, object]:
 
     for field in dataclasses.fields(sighting):
         value = getattr(sighting, field.name)
+        key = field.name
+
+        # The backend's IngestSighting expects `camera_code` (the human code
+        # like "CAM-01"), but the Sighting dataclass mirrors the DB column name
+        # `camera_id`. The value IS the camera code; only the key differs.
+        if key == "camera_id":
+            key = "camera_code"
 
         if isinstance(value, np.ndarray):
-            # 512 float32 become a JSON array. The backend packs them back into
-            # the BLOB column; schema.md section 3.6 forbids storing JSON there,
-            # but the wire format is a different question from the storage format.
-            payload[field.name] = [float(element) for element in value]
+            payload[key] = [float(element) for element in value]
         elif isinstance(value, Path):
-            payload[field.name] = value.as_posix()
+            payload[key] = value.as_posix()
         elif isinstance(value, np.generic):
-            payload[field.name] = value.item()
+            payload[key] = value.item()
         else:
-            payload[field.name] = value
+            payload[key] = value
 
     return payload
 
