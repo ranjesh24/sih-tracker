@@ -34,7 +34,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           <div className="flex flex-col">
             <div className="flex items-center gap-1.5">
               <span className="font-semibold tracking-tight text-sm text-[var(--text-primary)]">
-                Marg
+                MAARG
               </span>
               <span className="text-[10px] font-mono px-1 py-0.2 rounded bg-[var(--surface-sunken)] border border-[var(--border-subtle)] text-[var(--text-secondary)]">
                 SIH26127

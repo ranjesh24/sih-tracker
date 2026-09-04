@@ -31,10 +31,11 @@ if str(_BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(_BACKEND_ROOT))
 
 from sqlalchemy import delete  # noqa: E402
-from sqlmodel import Session, select  # noqa: E402
+from sqlmodel import Session, col, select  # noqa: E402
 
 import app.db.session as db_session  # noqa: E402
-from app.models import Camera, MatchDecision, Sighting, Vehicle  # noqa: E402
+from app.models import Camera, MatchDecision, Sighting, Vehicle, Video  # noqa: E402
+from app.repositories import video_repo  # noqa: E402
 
 STATIC_CROPS_DIR = _BACKEND_ROOT / "static" / "crops"
 UPLOADS_DIR = _BACKEND_ROOT / "data" / "uploads"
@@ -66,27 +67,93 @@ def _imaging_python() -> str | None:
 
 
 _CROP_SCRIPT = """
+import hashlib
 import sys
 import cv2
 
-clip_path, target, camera_code, plate, width, height = sys.argv[1:7]
-width, height = int(width), int(height)
+clip_path, target, camera_code, plate, width, height, rank = sys.argv[1:8]
+width, height, rank = int(width), int(height), int(rank)
+
+CANDIDATE_FRAMES = 12
+MIN_BOX_AREA_PX = 4000
+
+
+def write(image):
+    ok = bool(cv2.imwrite(target, cv2.resize(image, (width, height))))
+    if ok:
+        print(hashlib.md5(open(target, "rb").read()).hexdigest())
+    return ok
+
 
 wrote = False
 if clip_path:
-    capture = cv2.VideoCapture(clip_path)
+    # Sample frames across the clip and keep the ones where the detector finds
+    # a vehicle, ranked by how large it is. Picking the middle frame blind
+    # often landed on empty road; this picks a frame where the car is actually
+    # visible and reasonably big. `rank` selects the Nth-best frame, which lets
+    # the caller ask for a different one when two cameras would otherwise
+    # produce an identical crop.
     try:
-        frame_count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
-        if frame_count > 1:
-            capture.set(cv2.CAP_PROP_POS_FRAMES, frame_count // 2)
-        is_read, frame = capture.read()
-    finally:
-        capture.release()
-    if is_read and frame is not None:
-        h, w = frame.shape[:2]
-        crop = frame[int(h * 0.15):int(h * 0.90), int(w * 0.15):int(w * 0.85)]
-        if crop.size > 0:
-            wrote = bool(cv2.imwrite(target, cv2.resize(crop, (width, height))))
+        sys.path.insert(0, "ML_ROOT")
+        from src.config import Settings
+        from src.detector import VehicleDetector
+
+        settings = Settings(DEVICE="mps", YOLO_MODEL_PATH="ML_ROOT/models/yolov8s.pt")
+        detector = VehicleDetector(settings)
+
+        capture = cv2.VideoCapture(clip_path)
+        total = int(capture.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        scored = []
+        try:
+            for step in range(CANDIDATE_FRAMES):
+                index = int(total * (step + 0.5) / CANDIDATE_FRAMES) if total > 1 else 0
+                capture.set(cv2.CAP_PROP_POS_FRAMES, max(index, 0))
+                is_read, frame = capture.read()
+                if not is_read or frame is None:
+                    continue
+                detections = detector.detect(frame)
+                if not detections:
+                    continue
+                best = max(detections, key=lambda d: d.area_px)
+                if best.area_px < MIN_BOX_AREA_PX:
+                    continue
+                scored.append((best.area_px, index, frame, best))
+        finally:
+            capture.release()
+
+        scored.sort(key=lambda item: item[0], reverse=True)
+        if scored:
+            _, _, frame, best = scored[min(rank, len(scored) - 1)]
+            h, w = frame.shape[:2]
+            x1 = max(0, best.bbox_x_px)
+            y1 = max(0, best.bbox_y_px)
+            x2 = min(w, best.bbox_x_px + best.bbox_w_px)
+            y2 = min(h, best.bbox_y_px + best.bbox_h_px)
+            # Pad a little so the crop reads as a vehicle in context.
+            pad_x = int((x2 - x1) * 0.12)
+            pad_y = int((y2 - y1) * 0.12)
+            crop = frame[max(0, y1 - pad_y):min(h, y2 + pad_y),
+                         max(0, x1 - pad_x):min(w, x2 + pad_x)]
+            if crop.size > 0:
+                wrote = write(crop)
+    except Exception as exc:
+        print("DETECT_FAILED " + str(exc)[:120], file=sys.stderr)
+
+    if not wrote:
+        # Detector unavailable: fall back to the previous middle-frame centre crop.
+        capture = cv2.VideoCapture(clip_path)
+        try:
+            frame_count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+            if frame_count > 1:
+                capture.set(cv2.CAP_PROP_POS_FRAMES, frame_count // 2)
+            is_read, frame = capture.read()
+        finally:
+            capture.release()
+        if is_read and frame is not None:
+            h, w = frame.shape[:2]
+            crop = frame[int(h * 0.15):int(h * 0.90), int(w * 0.15):int(w * 0.85)]
+            if crop.size > 0:
+                wrote = write(crop)
 
 if not wrote:
     import numpy as np
@@ -94,10 +161,7 @@ if not wrote:
     cv2.rectangle(frame, (40, 40), (width - 40, height - 40), (90, 180, 90), 2)
     cv2.putText(frame, camera_code, (60, 130), cv2.FONT_HERSHEY_SIMPLEX, 1.1, (230, 230, 230), 2)
     cv2.putText(frame, plate, (60, 180), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (140, 200, 140), 2)
-    wrote = bool(cv2.imwrite(target, frame))
-    print("placeholder" if wrote else "FAILED")
-else:
-    print("frame")
+    write(frame)
 """
 
 # The demo vehicle. A single car passing three junctions in sequence.
@@ -123,43 +187,77 @@ def _utc(moment: datetime) -> str:
     )
 
 
-def _find_clip_for(camera_code: str) -> Path | None:
-    """Return an uploaded clip recorded on this camera, if any."""
+def _find_clip_for(camera_code: str, session: Session | None = None) -> Path | None:
+    """Return the video currently associated with this camera.
+
+    Reads the ``videos`` table for the current upload batch, so the seeded crop
+    is cut from the clip that actually plays in that camera's tile. The previous
+    version globbed the uploads directory and took whichever filename sorted
+    last, which is why the CAM-01 crop showed a different car than the CAM-01
+    feed. Falls back to the glob when the camera has no current upload.
+    """
+    if session is not None:
+        camera = session.exec(select(Camera).where(Camera.code == camera_code)).first()
+        if camera is not None:
+            batch_id = video_repo.get_current_batch_id(session)
+            if batch_id is not None:
+                video = session.exec(
+                    select(Video)
+                    .where(Video.camera_id == camera.id)
+                    .where(Video.batch_id == batch_id)
+                    .order_by(col(Video.uploaded_at).desc())
+                ).first()
+                if video is not None:
+                    candidate = UPLOADS_DIR / video.filename
+                    if candidate.is_file():
+                        return candidate
+
     if not UPLOADS_DIR.is_dir():
         return None
     matches = sorted(UPLOADS_DIR.glob(f"*_{camera_code}.*"))
     return matches[-1] if matches else None
 
 
-def _extract_crop(camera_code: str, target: Path) -> str:
-    """Write a crop JPEG for one camera and report how it was produced."""
+def _extract_crop(
+    camera_code: str,
+    target: Path,
+    session: Session | None = None,
+    rank: int = 0,
+) -> tuple[str, str | None]:
+    """Write a crop JPEG for one camera and report how it was produced.
+
+    Returns (report, md5). The md5 lets the caller notice two cameras producing
+    an identical image and ask for a different frame.
+    """
     interpreter = _imaging_python()
     if interpreter is None:
-        return "FAILED (no interpreter with opencv found)"
+        return "FAILED (no interpreter with opencv found)", None
 
-    clip = _find_clip_for(camera_code)
+    clip = _find_clip_for(camera_code, session)
+    script = _CROP_SCRIPT.replace("ML_ROOT", str(ML_PIPELINE_DIR))
     result = subprocess.run(
         [
             interpreter,
             "-c",
-            _CROP_SCRIPT,
+            script,
             str(clip) if clip else "",
             str(target),
             camera_code,
             DEMO_PLATE,
             str(CROP_WIDTH_PX),
             str(CROP_HEIGHT_PX),
+            str(rank),
         ],
         capture_output=True,
         text=True,
     )
     if result.returncode != 0 or not target.is_file():
-        return f"FAILED ({result.stderr.strip().splitlines()[-1:] or 'unknown'})"
+        return f"FAILED ({result.stderr.strip().splitlines()[-1:] or 'unknown'})", None
 
-    kind = result.stdout.strip().splitlines()[-1] if result.stdout.strip() else "written"
-    if kind == "frame" and clip is not None:
-        return f"frame from {clip.name}"
-    return "generated placeholder"
+    lines = [ln for ln in result.stdout.strip().splitlines() if ln]
+    digest = lines[-1] if lines and len(lines[-1]) == 32 else None
+    source = f"frame from {clip.name}" if clip is not None else "generated placeholder"
+    return source, digest
 
 
 def clear_seeded(session: Session) -> None:
@@ -206,6 +304,7 @@ def seed(session: Session) -> dict:
     session.refresh(vehicle)
 
     crop_reports: list[str] = []
+    seen_digests: set[str] = set()
     sightings: list[Sighting] = []
     elapsed_seconds = 0
 
@@ -244,7 +343,16 @@ def seed(session: Session) -> dict:
         session.refresh(sighting)
 
         crop_file = STATIC_CROPS_DIR / f"{sighting.id}.jpg"
-        report = _extract_crop(camera_code, crop_file)
+        report, digest = _extract_crop(camera_code, crop_file, session)
+        # Keep the three crops visually distinct: if this camera's clip yields
+        # the same image as an earlier one (two cameras can share a video), ask
+        # for the next-best frame instead.
+        attempt = 1
+        while digest is not None and digest in seen_digests and attempt <= 3:
+            report, digest = _extract_crop(camera_code, crop_file, session, rank=attempt)
+            attempt += 1
+        if digest is not None:
+            seen_digests.add(digest)
         crop_reports.append(f"{camera_code}: {report}")
         if crop_file.is_file():
             sighting.crop_path = f"crops/{sighting.id}.jpg"

@@ -20,7 +20,7 @@ export const EvidencePage: React.FC<EvidencePageProps> = ({ cameras }) => {
 
   const [vehicle, setVehicle] = useState<Vehicle | null>(null);
   const [trajectory, setTrajectory] = useState<TrajectoryRead | null>(null);
-  const [selectedSightingId, setSelectedSightingId] = useState<string>('sight-02');
+  const [selectedSightingId, setSelectedSightingId] = useState<string>('');
   const [sightingDetail, setSightingDetail] = useState<SightingDetailRead | null>(null);
 
   useEffect(() => {
@@ -36,8 +36,16 @@ export const EvidencePage: React.FC<EvidencePageProps> = ({ cameras }) => {
         setTrajectory(trajData);
 
         const scoped = scopePoints(trajData.points, cameras);
-        const initial = scoped.length > 1 ? scoped[1] : scoped[0];
-        if (initial) setSelectedSightingId(initial.sighting_id);
+        // Preserve the user's choice across polls. This effect re-runs whenever
+        // the polled `cameras` array changes identity (every few seconds), and
+        // it used to overwrite the selection each time — which is why a click on
+        // CAM-01 snapped back on its own. Only choose for the user when there is
+        // no valid selection: first load, or the selected camera disappeared.
+        setSelectedSightingId((current) => {
+          const stillValid = scoped.some((p) => p.sighting_id === current);
+          if (stillValid) return current;
+          return scoped[0]?.sighting_id ?? '';
+        });
       } catch (err) {
         console.error(err);
       }
