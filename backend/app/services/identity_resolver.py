@@ -110,6 +110,14 @@ class IdentityResolver:
     # -- decision persistence -------------------------------------------------
 
     def _record(self, sighting: Sighting, **fields: object) -> MatchDecision:
+        if "visual_score" in fields and fields["visual_score"] is not None:
+            fields["visual_score"] = max(-1.0, min(1.0, float(fields["visual_score"])))
+        if "plate_score" in fields and fields["plate_score"] is not None:
+            fields["plate_score"] = max(0.0, min(1.0, float(fields["plate_score"])))
+        if "temporal_score" in fields and fields["temporal_score"] is not None:
+            fields["temporal_score"] = max(0.0, min(1.0, float(fields["temporal_score"])))
+        if "fused_score" in fields and fields["fused_score"] is not None:
+            fields["fused_score"] = max(0.0, min(1.0, float(fields["fused_score"])))
         decision = MatchDecision(
             sighting_id=sighting.id, created_at=utcnow(), **fields  # type: ignore[arg-type]
         )

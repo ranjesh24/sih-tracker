@@ -89,6 +89,9 @@ async def upload_video(
     env = {**os.environ, **ml_env}
     env["INGEST_API_KEY"] = _settings.INGEST_API_KEY
 
+    log_path = (UPLOAD_DIR / f"{job_id}.log").resolve()
+    log_file = open(log_path, "w", encoding="utf-8", errors="replace")
+
     proc = subprocess.Popen(
         [
             python_exe,
@@ -99,7 +102,7 @@ async def upload_video(
         ],
         cwd=str(ML_PIPELINE_DIR),
         env=env,
-        stdout=subprocess.PIPE,
+        stdout=log_file,
         stderr=subprocess.STDOUT,
     )
 
@@ -107,6 +110,8 @@ async def upload_video(
         "process": proc,
         "camera_code": camera_code,
         "video_path": str(video_path),
+        "log_path": str(log_path),
+        "log_file": log_file,
     }
 
     logger.info("Pipeline worker spawned: job=%s pid=%d camera=%s", job_id, proc.pid, camera_code)
@@ -123,6 +128,13 @@ async def upload_video(
 def get_job_status(job_id: str) -> JobStatus:
     job = _jobs.get(job_id)
     if job is None:
+        log_path = UPLOAD_DIR / f"{job_id}.log"
+        if log_path.exists():
+            content = log_path.read_text(encoding="utf-8", errors="replace")
+            if "done:" in content:
+                return JobStatus(job_id=job_id, camera_code="", status="completed", returncode=0)
+            elif "fatal:" in content or "Traceback" in content or "Error" in content:
+                return JobStatus(job_id=job_id, camera_code="", status="failed", returncode=1)
         raise NotFoundError(f"No job with id {job_id}")
 
     proc: subprocess.Popen = job["process"]
@@ -132,8 +144,16 @@ def get_job_status(job_id: str) -> JobStatus:
         status = "processing"
     elif rc == 0:
         status = "completed"
+        try:
+            job["log_file"].close()
+        except Exception:
+            pass
     else:
         status = "failed"
+        try:
+            job["log_file"].close()
+        except Exception:
+            pass
 
     return JobStatus(
         job_id=job_id,
@@ -145,21 +165,10 @@ def get_job_status(job_id: str) -> JobStatus:
 
 @router.get("/status/{job_id}/logs")
 def get_job_logs(job_id: str) -> dict:
-    job = _jobs.get(job_id)
-    if job is None:
-        raise NotFoundError(f"No job with id {job_id}")
-
-    proc: subprocess.Popen = job["process"]
+    log_path = UPLOAD_DIR / f"{job_id}.log"
     output = ""
-    if proc.stdout and proc.stdout.readable():
-        try:
-            proc.stdout.flush()
-        except Exception:
-            pass
-        import select as sel
-        if proc.poll() is not None:
-            output = proc.stdout.read().decode("utf-8", errors="replace")
-
+    if log_path.exists():
+        output = log_path.read_text(encoding="utf-8", errors="replace")
     return {"job_id": job_id, "logs": output}
 
 

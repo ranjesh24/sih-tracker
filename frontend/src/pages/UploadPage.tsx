@@ -75,7 +75,8 @@ export const UploadPage: React.FC = () => {
           status: 'processing',
           videoUrl,
         });
-      } catch {
+      } catch (err) {
+        console.error(`Upload failed for ${job.cameraCode}:`, err);
         updateJob(job.cameraCode, { status: 'failed' });
       }
     }

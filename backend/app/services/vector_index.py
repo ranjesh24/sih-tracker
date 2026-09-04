@@ -121,7 +121,8 @@ class VectorIndex:
         for score, int_id in zip(distances[0], ids[0]):
             if int_id == -1:
                 continue
-            results.append((self._int_to_uuid[int(int_id)], float(score)))
+            clamped = max(-1.0, min(1.0, float(score)))
+            results.append((self._int_to_uuid[int(int_id)], clamped))
         return results
 
     def search_subset(
@@ -139,7 +140,8 @@ class VectorIndex:
             stored = self._vectors.get(sighting_id)
             if stored is None:
                 continue
-            scores[sighting_id] = float(np.dot(v, stored))
+            dot = float(np.dot(v, stored))
+            scores[sighting_id] = max(-1.0, min(1.0, dot))
         return scores
 
     def _reset(self) -> None:

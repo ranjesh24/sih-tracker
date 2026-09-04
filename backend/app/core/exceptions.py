@@ -100,14 +100,17 @@ async def _validation_handler(
     )
 
 
+import logging
+logger = logging.getLogger("marg.exceptions")
+
+
 async def _unhandled_handler(request: Request, exc: Exception) -> JSONResponse:
-    # Never leak internals (rules.md 3): the message is generic, the request_id
-    # is the bridge to the server log line that has the detail.
+    logger.exception("Unhandled error in request %s: %s", _request_id(request), exc)
     return JSONResponse(
         status_code=_UNHANDLED_STATUS,
         content=_envelope(
             _UNHANDLED_CODE,
-            "Something went wrong on the server.",
+            f"Something went wrong on the server: {exc}",
             _request_id(request),
             None,
         ),

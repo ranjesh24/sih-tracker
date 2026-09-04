@@ -252,7 +252,7 @@ class HttpIngestClient(IngestClient):
                         f"{response.status_code}: {response.text[:200]}"
                     )
 
-                last_error = f"server error {response.status_code}"
+                last_error = f"server error {response.status_code}: {response.text[:300]}"
 
             is_last_attempt = attempt_index == max_attempts - 1
             if not is_last_attempt:
