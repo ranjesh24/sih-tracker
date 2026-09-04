@@ -70,22 +70,26 @@ export const CameraTile: React.FC<CameraTileProps> = ({
           </>
         )}
 
-        {/* Detection Bounding Box Overlay */}
-        <div
-          className="absolute border-2 border-[var(--detection-box)] pointer-events-none"
-          style={{ top: '30%', left: '35%', width: '30%', height: '40%' }}
-        >
-          <div className="absolute -top-5 left-0 bg-[var(--detection-label-bg)] px-1.5 py-0.5 text-[10px] font-mono text-[var(--text-primary)] rounded-[1px] border border-[var(--border-subtle)] whitespace-nowrap">
-            ID:{recentTrackId || 42} • CAR 94%
-          </div>
+        {/* Detection Bounding Box Overlay — drawn only on tiles that have
+            video. A camera with no footage shows nothing, so the wall never
+            claims a detection on a feed that does not exist. */}
+        {videoUrl && (
           <div
-            className="absolute bottom-2 left-1/4 w-1/2 h-5 border border-dashed border-[var(--detection-plate-box)] bg-black/40 flex items-center justify-center"
+            className="absolute border-2 border-[var(--detection-box)] pointer-events-none"
+            style={{ top: '30%', left: '35%', width: '30%', height: '40%' }}
           >
-            <span className="font-mono text-[9px] text-[var(--status-ambiguous)]">
-              {recentPlate || 'OCR ACTIVE'}
-            </span>
+            <div className="absolute -top-5 left-0 bg-[var(--detection-label-bg)] px-1.5 py-0.5 text-[10px] font-mono text-[var(--text-primary)] rounded-[1px] border border-[var(--border-subtle)] whitespace-nowrap">
+              ID:{recentTrackId || 42} • CAR 94%
+            </div>
+            <div
+              className="absolute bottom-2 left-1/4 w-1/2 h-5 border border-dashed border-[var(--detection-plate-box)] bg-black/40 flex items-center justify-center"
+            >
+              <span className="font-mono text-[9px] text-[var(--status-ambiguous)]">
+                {recentPlate || 'OCR ACTIVE'}
+              </span>
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* 48px linear functional gradient overlay over lower edge per design.md §7 */}
@@ -114,10 +118,17 @@ export const CameraTile: React.FC<CameraTileProps> = ({
           )}
         </div>
 
-        <div className="flex items-center gap-1 bg-[var(--surface-base)]/80 px-1.5 py-0.5 rounded text-[10px] font-mono border border-[var(--border-subtle)] text-[var(--accent-text)]">
-          <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)] animate-pulse" />
-          <span>LIVE</span>
-        </div>
+        {videoUrl ? (
+          <div className="flex items-center gap-1 bg-[var(--surface-base)]/80 px-1.5 py-0.5 rounded text-[10px] font-mono border border-[var(--border-subtle)] text-[var(--accent-text)]">
+            <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)] animate-pulse" />
+            <span>LIVE</span>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1 bg-[var(--surface-base)]/80 px-1.5 py-0.5 rounded text-[10px] font-mono border border-[var(--border-subtle)] text-[var(--text-muted)]">
+            <span className="w-1.5 h-1.5 rounded-full bg-[var(--text-muted)]" />
+            <span>NO FEED</span>
+          </div>
+        )}
       </div>
     </div>
   );

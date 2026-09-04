@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import type { SightingDetailRead, TrajectoryPoint } from '../../types/api';
 import { PlateBadge } from '../ui/PlateBadge';
 import { MatchExplanation } from './MatchExplanation';
+import { staticAssetUrl } from '../../lib/api';
 import { Image as ImageIcon } from 'lucide-react';
 
 interface EvidencePanelProps {
@@ -15,6 +16,23 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
   selectedPoint,
   previousPoint,
 }) => {
+  // Hooks must run before any early return, so they sit above the empty state.
+  // Crop of the SELECTED sighting: it changes as the map/timeline selection
+  // changes rather than showing one fixed image.
+  const cropUrl = staticAssetUrl(
+    selectedPoint?.crop_url ??
+      (sightingDetail?.crop_path ? `/static/${sightingDetail.crop_path}` : null)
+  );
+  const [cropFailed, setCropFailed] = useState(false);
+  useEffect(() => {
+    setCropFailed(false);
+    if (selectedPoint?.sighting_id && !cropUrl) {
+      console.warn(
+        `[evidence-panel] no crop_url for sighting ${selectedPoint.sighting_id}`
+      );
+    }
+  }, [selectedPoint?.sighting_id, cropUrl]);
+
   if (!sightingDetail && !selectedPoint) {
     return (
       <aside className="w-[380px] shrink-0 h-full p-4 flex flex-col items-center justify-center text-center bg-[var(--surface-raised)] border-l border-[var(--border-default)]">
@@ -27,11 +45,12 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
     );
   }
 
-  const cameraCode = selectedPoint?.camera_code || sightingDetail?.camera_code || 'CAM-01';
-  const fromCameraCode = previousPoint?.camera_code || 'CAM-01';
+  const cameraCode = selectedPoint?.camera_code ?? sightingDetail?.camera_code ?? '—';
+  const fromCameraCode = previousPoint?.camera_code ?? undefined;
   const plateText = selectedPoint?.plate_text_norm || sightingDetail?.plate_text_norm;
   const plateConfidence = selectedPoint?.plate_confidence ?? sightingDetail?.plate_confidence;
   const timestamp = selectedPoint?.timestamp || sightingDetail?.first_frame_at || '';
+
 
   return (
     <aside className="w-[380px] shrink-0 h-full flex flex-col bg-[var(--surface-raised)] border-l border-[var(--border-default)] overflow-y-auto select-none">
@@ -52,19 +71,40 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
             Best-shot vehicle crop
           </span>
           <div className="relative aspect-video w-full rounded-[var(--radius-md)] overflow-hidden bg-[var(--surface-sunken)] border border-[var(--border-default)] flex items-center justify-center">
-            {/* Simulated Vehicle Graphic Representation */}
-            <div className="flex flex-col items-center gap-2 text-[var(--text-muted)]">
-              <div className="w-16 h-10 border-2 border-[var(--accent)] rounded bg-[var(--surface-raised)] flex items-center justify-center font-mono text-[10px] text-[var(--text-primary)] font-bold">
-                {cameraCode}
+            {cropUrl && !cropFailed ? (
+              <img
+                src={cropUrl}
+                alt={`Best-shot crop at ${cameraCode}`}
+                onError={() => {
+                  console.warn(`[evidence-panel] crop failed to load: ${cropUrl}`);
+                  setCropFailed(true);
+                }}
+                className="absolute inset-0 w-full h-full object-contain"
+              />
+            ) : (
+              <div className="flex flex-col items-center gap-2 text-[var(--text-muted)]">
+                <div className="w-16 h-10 border-2 border-[var(--accent)] rounded bg-[var(--surface-raised)] flex items-center justify-center font-mono text-[10px] text-[var(--text-primary)] font-bold">
+                  {cameraCode}
+                </div>
+                <span className="font-mono text-[10px]">
+                  {sightingDetail?.id || selectedPoint?.sighting_id || 'Crop verified'}
+                </span>
               </div>
-              <span className="font-mono text-[10px]">
-                {sightingDetail?.id || selectedPoint?.sighting_id || 'Crop verified'}
-              </span>
-            </div>
+            )}
 
             <div className="absolute bottom-2 left-2 right-2 flex justify-between items-center text-[10px] font-mono text-[var(--text-secondary)] bg-black/70 px-2 py-0.5 rounded">
-              <span>CONF: {(sightingDetail?.detection_confidence ?? 0.94) * 100}%</span>
-              <span>CLASS: {sightingDetail?.vehicle_class ?? 'car'}</span>
+              <span>
+                CONF:{' '}
+                {(
+                  (selectedPoint?.detection_confidence ??
+                    sightingDetail?.detection_confidence ??
+                    0.94) * 100
+                ).toFixed(0)}
+                %
+              </span>
+              <span>
+                CLASS: {selectedPoint?.vehicle_class ?? sightingDetail?.vehicle_class ?? 'car'}
+              </span>
             </div>
           </div>
         </div>
@@ -93,7 +133,7 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
           <div className="p-2 rounded bg-[var(--surface-sunken)] border border-[var(--border-subtle)] flex flex-col">
             <span className="text-[10px] text-[var(--text-secondary)]">Vehicle class</span>
             <span className="text-[var(--text-primary)] font-semibold uppercase">
-              {sightingDetail?.vehicle_class ?? 'car'}
+              {selectedPoint?.vehicle_class ?? sightingDetail?.vehicle_class ?? 'car'}
             </span>
           </div>
         </div>

@@ -104,31 +104,40 @@ def to_vehicle_class(class_name: str) -> VehicleClass:
 
 
 def write_best_crop(
-    tracklet: Tracklet,
+    sighting_id: str,
     best_shot_sample_crop: np.ndarray,
     settings: Settings,
-) -> Path:
-    """Write the top crop to CROP_STORAGE_PATH/<camera_id>/<track_id>.jpg.
+) -> str:
+    """Write the best-shot crop where the backend can serve it.
+
+    The crop is the vehicle bbox already cut from the decoded frame during
+    tier 1, so nothing is re-opened or re-seeked here — the pixels are simply
+    the ones already held in the FrameSample.
+
+    Named by sighting id rather than track id: track ids restart per camera, so
+    CAM-01 and CAM-02 both produce a track 1 and would overwrite each other.
 
     Args:
-        tracklet: The finalised tracklet the crop belongs to.
+        sighting_id: Id of the sighting this crop belongs to.
         best_shot_sample_crop: The highest-scoring crop, BGR.
         settings: Pipeline settings.
 
     Returns:
-        The absolute path written.
+        The path relative to the backend's static root, e.g.
+        "crops/<sighting_id>.jpg", which the backend maps to
+        "/static/crops/<sighting_id>.jpg".
 
     Raises:
         OSError: If the file could not be written.
     """
-    camera_dir = settings.CROP_STORAGE_PATH / tracklet.camera_id
-    camera_dir.mkdir(parents=True, exist_ok=True)
+    crop_dir = settings.BACKEND_STATIC_CROP_PATH
+    crop_dir.mkdir(parents=True, exist_ok=True)
 
-    crop_path = camera_dir / f"{tracklet.track_id}.jpg"
+    crop_path = crop_dir / f"{sighting_id}.jpg"
     if not cv2.imwrite(str(crop_path), best_shot_sample_crop):
         raise OSError(f"cv2.imwrite failed for {crop_path}")
 
-    return crop_path
+    return f"crops/{sighting_id}.jpg"
 
 
 def write_plate_crop(
@@ -151,22 +160,24 @@ def write_plate_crop(
 
 
 def build_sighting(
+    sighting_id: str,
     tracklet: Tracklet,
     best_shots: tuple[FrameSample, ...],
     plate_read: PlateRead,
     embedding_vector: list[float],
-    crop_path: Path,
+    crop_path: str,
     plate_crop_path: Path | None,
     settings: Settings,
 ) -> Sighting:
     """Assemble a Sighting from a finalised tracklet and its tier-2 results.
 
     Args:
+        sighting_id: Pre-generated id, also used to name the crop file.
         tracklet: The finalised tracklet.
         best_shots: Pre-computed best shots (avoids recomputing).
         plate_read: Result of plate OCR over the best shots.
         embedding_vector: 512-D unit-norm appearance embedding.
-        crop_path: Absolute path of the written vehicle crop.
+        crop_path: Crop path relative to the backend static root.
         plate_crop_path: Absolute path of the plate crop, if any.
         settings: Pipeline settings, for resolving relative crop paths.
 
@@ -177,7 +188,7 @@ def build_sighting(
     detection = best_sample.detection
 
     return Sighting(
-        id=str(uuid.uuid4()),
+        id=sighting_id,
         camera_id=tracklet.camera_id,
         local_track_id=tracklet.track_id,
         first_frame_at=tracklet.first_frame_at,
@@ -198,7 +209,7 @@ def build_sighting(
         plate_bbox=plate_read.bbox_json,
         embedding=np.asarray(embedding_vector, dtype=np.float32),
         embedding_dim=len(embedding_vector),
-        crop_path=relative_crop_path(crop_path, settings),
+        crop_path=crop_path,
         plate_crop_path=(
             relative_crop_path(plate_crop_path, settings) if plate_crop_path else None
         ),
@@ -342,14 +353,23 @@ def emit_tracklet(
     if not best_shots:
         return 0
 
-    crop_path = write_best_crop(tracklet, best_shots[0].crop_bgr, settings)
+    # Generated up front so the crop file and the sighting share one identifier.
+    sighting_id = str(uuid.uuid4())
+    crop_path = write_best_crop(sighting_id, best_shots[0].crop_bgr, settings)
 
     plate_read = plate_reader.read_tracklet(best_shots)
     embedding_vector = embedder.embed_tracklet(best_shots)
     plate_crop_path = write_plate_crop(tracklet, plate_read, settings)
 
     sighting = build_sighting(
-        tracklet, best_shots, plate_read, embedding_vector, crop_path, plate_crop_path, settings
+        sighting_id,
+        tracklet,
+        best_shots,
+        plate_read,
+        embedding_vector,
+        crop_path,
+        plate_crop_path,
+        settings,
     )
     client.send(sighting)
 

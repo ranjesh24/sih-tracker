@@ -1,15 +1,15 @@
 """End-to-end: a real clip through the whole worker, producing a valid Sighting.
 
 This is the closest thing to the demo path that runs in CI. It builds a short
-synthetic clip from a real vehicle photograph, runs the actual worker with the
+short clip from uploaded footage, runs the actual worker with the
 real detector, tracker, OCR and embedder, and asserts the emitted JSONL is
 something the backend would accept.
 """
 
 from __future__ import annotations
 
+import importlib.util
 import json
-import re
 import subprocess
 import sys
 import time
@@ -22,8 +22,24 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PIPELINE_ROOT = Path(__file__).resolve().parents[2]
-SCHEMA_PATH = REPO_ROOT / "SIH_md_files" / "schema.md"
-SAMPLE_IMAGE = PIPELINE_ROOT / "sample_data" / "reid_test" / "car_a_cam1.jpeg"
+BACKEND_INGEST_SCHEMA_PATH = REPO_ROOT / "backend" / "app" / "schemas" / "ingest.py"
+
+
+def load_backend_ingest_model() -> type:
+    """Import IngestSighting by path; backend/ has its own venv (see unit tests)."""
+    spec = importlib.util.spec_from_file_location(
+        "backend_ingest_schema", BACKEND_INGEST_SCHEMA_PATH
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.IngestSighting
+# Source footage for the end-to-end run. The suite used to carry its own
+# vehicle images and pan a window across one; those images were removed from
+# the repository, so the test now borrows a clip that has actually been uploaded
+# through the app. If none exists the test skips rather than passing on a
+# synthetic shape the detector would never recognise as a vehicle.
+UPLOADS_DIR = PIPELINE_ROOT.parent / "backend" / "data" / "uploads"
 
 CLIP_FRAME_COUNT = 30
 CLIP_FPS = 10.0
@@ -31,23 +47,28 @@ CLIP_WIDTH_PX = 640
 CLIP_HEIGHT_PX = 480
 
 
-def schema_sighting_columns() -> set[str]:
-    sql = SCHEMA_PATH.read_text().split("CREATE TABLE sightings (")[1].split(");")[0]
-    columns: set[str] = set()
-    for line in sql.splitlines():
-        match = re.match(r"^([a-z_]+)\s+(TEXT|INTEGER|REAL|BLOB)\b", line.strip())
-        if match:
-            columns.add(match.group(1))
-    return columns
+def _find_source_clip() -> Path | None:
+    """Return an uploaded clip to run the pipeline against, or None."""
+    if not UPLOADS_DIR.is_dir():
+        return None
+    clips = sorted(
+        (path for path in UPLOADS_DIR.glob("*.mp4") if path.stat().st_size > 0),
+        key=lambda path: path.stat().st_size,
+    )
+    return clips[0] if clips else None
 
 
 @pytest.fixture(scope="module")
 def test_clip(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """Pan a window across a real vehicle photo to synthesise a moving vehicle."""
-    source = cv2.imread(str(SAMPLE_IMAGE))
-    assert source is not None, f"could not read {SAMPLE_IMAGE}"
+    """Re-encode the first frames of an uploaded clip into a short test clip."""
+    source_clip = _find_source_clip()
+    if source_clip is None:
+        pytest.skip(
+            f"no uploaded footage in {UPLOADS_DIR}; upload a clip through the app "
+            "to run the end-to-end test"
+        )
 
-    source = cv2.resize(source, (960, 788))
+    capture = cv2.VideoCapture(str(source_clip))
     clip_path = tmp_path_factory.mktemp("clip") / "CAM-01.avi"
     writer = cv2.VideoWriter(
         str(clip_path),
@@ -57,12 +78,21 @@ def test_clip(tmp_path_factory: pytest.TempPathFactory) -> Path:
     )
     assert writer.isOpened()
 
-    for frame_index in range(CLIP_FRAME_COUNT):
-        max_x = source.shape[1] - CLIP_WIDTH_PX
-        x_px = int(max_x * (frame_index / (CLIP_FRAME_COUNT - 1)))
-        writer.write(source[150 : 150 + CLIP_HEIGHT_PX, x_px : x_px + CLIP_WIDTH_PX].copy())
+    written = 0
+    try:
+        while written < CLIP_FRAME_COUNT:
+            is_read, frame = capture.read()
+            if not is_read:
+                break
+            writer.write(cv2.resize(frame, (CLIP_WIDTH_PX, CLIP_HEIGHT_PX)))
+            written += 1
+    finally:
+        capture.release()
+        writer.release()
 
-    writer.release()
+    if written == 0:
+        pytest.skip(f"could not decode any frame from {source_clip.name}")
+
     return clip_path
 
 
@@ -87,6 +117,7 @@ def worker_run(test_clip: Path, tmp_path_factory: pytest.TempPathFactory) -> dic
         "TRACK_LOST_FRAMES": "5",
         "TRACKLET_MIN_FRAMES": "4",
         "CROP_STORAGE_PATH": str(run_dir / "crops"),
+        "BACKEND_STATIC_CROP_PATH": str(run_dir / "static" / "crops"),
         "YOLO_MODEL_PATH": str(PIPELINE_ROOT / "models" / "yolov8s.pt"),
     }
 
@@ -104,6 +135,7 @@ def worker_run(test_clip: Path, tmp_path_factory: pytest.TempPathFactory) -> dic
         "completed": completed,
         "output_path": output_path,
         "run_dir": run_dir,
+        "static_crop_dir": run_dir / "static" / "crops",
         "elapsed_seconds": elapsed_seconds,
     }
 
@@ -122,17 +154,24 @@ def test_worker_emits_at_least_one_sighting(worker_run: dict) -> None:
     assert len(lines) >= 1
 
 
-def test_emitted_sighting_matches_the_schema(worker_run: dict) -> None:
+def test_emitted_sighting_validates_against_the_backend_ingest_model(
+    worker_run: dict,
+) -> None:
+    """What the worker really emits must be acceptable to the real backend model."""
     record = json.loads(worker_run["output_path"].read_text().strip().splitlines()[0])
+    ingest_model = load_backend_ingest_model()
 
-    assert set(record) == schema_sighting_columns()
+    validated = ingest_model.model_validate(record)
+
+    assert validated.camera_code == "CAM-01"
+    assert validated.frame_count > 0
 
 
 def test_emitted_sighting_is_internally_valid(worker_run: dict) -> None:
     """Assert the CHECK constraints the sightings table would enforce."""
     record = json.loads(worker_run["output_path"].read_text().strip().splitlines()[0])
 
-    assert record["camera_id"] == "CAM-01"
+    assert record["camera_code"] == "CAM-01"
     assert record["frame_count"] > 0
     assert record["bbox_w"] > 0 and record["bbox_h"] > 0
     assert 0.0 <= record["detection_confidence"] <= 1.0
@@ -169,13 +208,20 @@ def test_timestamps_derive_from_the_supplied_epoch(worker_run: dict) -> None:
 
 
 def test_crop_is_written_and_path_is_relative(worker_run: dict) -> None:
+    """The crop lands where the backend serves it, keyed by sighting id.
+
+    The path is relative to the backend static root, so the backend maps it to
+    /static/crops/<sighting_id>.jpg without knowing anything about the worker's
+    filesystem. Keying by sighting id rather than track id matters because track
+    ids restart per camera and would otherwise collide across cameras.
+    """
     record = json.loads(worker_run["output_path"].read_text().strip().splitlines()[0])
     crop_path = record["crop_path"]
 
     assert not Path(crop_path).is_absolute()
-    assert crop_path.startswith("CAM-01/")
+    assert crop_path == f"crops/{record['id']}.jpg"
 
-    written = worker_run["run_dir"] / "crops" / crop_path
+    written = worker_run["static_crop_dir"] / f"{record['id']}.jpg"
     assert written.is_file(), f"crop not found at {written}"
 
 

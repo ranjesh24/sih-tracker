@@ -117,6 +117,12 @@ class Sighting(SQLModel, table=True):
     embedding_dim: int = Field(default=512, nullable=False)
     in_vector_index: bool = Field(default=False, nullable=False)
 
+    # Upload session this sighting came from. Set at ingest from the camera's
+    # current video batch, so "which sightings did this run produce" is a
+    # recorded fact rather than a timestamp guess. NULL for seeded demo rows,
+    # which therefore survive an upload-session reset.
+    batch_id: Optional[str] = Field(default=None)
+
     crop_path: Optional[str] = Field(default=None)
     plate_crop_path: Optional[str] = Field(default=None)
     sharpness_score: Optional[float] = Field(default=None)

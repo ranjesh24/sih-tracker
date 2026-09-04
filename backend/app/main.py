@@ -7,11 +7,13 @@ lifespan and stored on ``app.state``.
 """
 import asyncio
 import uuid
+from pathlib import Path
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from sqlmodel import Session
 
 import app.db.session as db_session
@@ -70,6 +72,12 @@ app.add_middleware(
 )
 
 register_exception_handlers(app)
+
+# Best-shot crops written by the ML pipeline, served at /static/crops/<id>.jpg.
+# Created at import so a fresh checkout serves the mount instead of failing.
+_STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+(_STATIC_DIR / "crops").mkdir(parents=True, exist_ok=True)
+app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
 app.include_router(cameras.router, prefix=API_V1_PREFIX)
 app.include_router(upload.router, prefix=API_V1_PREFIX)

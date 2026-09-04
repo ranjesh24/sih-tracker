@@ -1,13 +1,24 @@
 """Ingest serialisation and the two emission modes.
 
-The field-name test is the important one. `sighting_to_dict` generates keys from
-the Sighting dataclass, and this parses schema.md's CREATE TABLE directly, so
-the two are compared against the spec rather than against each other. A column
-renamed in the schema fails here rather than silently at the backend.
+Two distinct contracts are checked here, and conflating them is what let a real
+bug through once already:
+
+  * The `Sighting` dataclass mirrors the `sightings` TABLE in schema.md 3.6.
+    Its field is `camera_id`, matching the column.
+  * The ingest PAYLOAD targets `backend/app/schemas/ingest.py::IngestSighting`,
+    a different and much smaller contract. It expects `camera_code`.
+
+An earlier version of this file asserted the payload against the table columns.
+Both the test and the serialiser shared that mistake, so the suite stayed green
+while every POST would have been rejected by the backend for a missing required
+field. The payload is now validated against the real Pydantic model, imported
+directly, so the wire contract cannot drift unnoticed again.
 """
 
 from __future__ import annotations
 
+import dataclasses
+import importlib.util
 import json
 import re
 from datetime import datetime, timezone
@@ -25,7 +36,26 @@ from src.ingest_client import (
 )
 from src.types import Sighting
 
-SCHEMA_PATH = Path(__file__).resolve().parents[3] / "SIH_md_files" / "schema.md"
+REPO_ROOT = Path(__file__).resolve().parents[3]
+SCHEMA_PATH = REPO_ROOT / "SIH_md_files" / "schema.md"
+BACKEND_INGEST_SCHEMA_PATH = REPO_ROOT / "backend" / "app" / "schemas" / "ingest.py"
+
+
+def load_backend_ingest_model() -> type:
+    """Import IngestSighting from the backend without importing the backend.
+
+    Loaded by file path rather than as a package: backend/ has its own venv and
+    its packages (SQLModel, FastAPI) are not installed here. This module happens
+    to depend only on pydantic, which is, so the real model can serve as the
+    source of truth instead of a copy that would drift.
+    """
+    spec = importlib.util.spec_from_file_location(
+        "backend_ingest_schema", BACKEND_INGEST_SCHEMA_PATH
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.IngestSighting
 
 
 def schema_sighting_columns() -> list[str]:
@@ -68,13 +98,59 @@ def settings(tmp_path: Path) -> Settings:
     return Settings(CROP_STORAGE_PATH=tmp_path / "crops")
 
 
-def test_every_serialised_field_name_matches_the_schema() -> None:
-    """The 30-column correspondence, checked against schema.md itself."""
-    payload = sighting_to_dict(make_sighting())
+def test_sighting_dataclass_mirrors_the_schema_columns() -> None:
+    """The Sighting DATACLASS still mirrors the sightings TABLE, 30 for 30.
+
+    This is the storage-shape contract, and it uses `camera_id` like the column
+    does. It is deliberately separate from the wire-shape contract below.
+    """
+    field_names = {field.name for field in dataclasses.fields(Sighting)}
     columns = schema_sighting_columns()
 
     assert len(columns) == 30
-    assert set(payload) == set(columns)
+    assert field_names == set(columns)
+
+
+def test_payload_validates_against_the_backend_ingest_model() -> None:
+    """The wire contract, checked against the real Pydantic model.
+
+    This is the assertion that matters. It parses the payload with the backend's
+    own IngestSighting, so a renamed or missing required field fails here rather
+    than as a 422 at run time. The earlier version of this test compared the
+    payload against the table columns and therefore accepted `camera_id`, which
+    the backend does not.
+    """
+    ingest_model = load_backend_ingest_model()
+
+    validated = ingest_model.model_validate(sighting_to_dict(make_sighting()))
+
+    assert validated.camera_code == "CAM-01"
+    assert validated.local_track_id == 17
+    assert validated.frame_count == 40
+
+
+def test_payload_carries_every_field_the_backend_requires() -> None:
+    """No required field may be absent from the payload."""
+    ingest_model = load_backend_ingest_model()
+    required = {
+        name for name, field in ingest_model.model_fields.items() if field.is_required()
+    }
+
+    payload = sighting_to_dict(make_sighting())
+
+    assert required <= set(payload), f"payload is missing {required - set(payload)}"
+
+
+def test_payload_uses_camera_code_not_camera_id() -> None:
+    """Pinned explicitly, because this exact mismatch shipped once.
+
+    The dataclass field is `camera_id` (the column name); the wire key is
+    `camera_code`. The value is the same human code either way.
+    """
+    payload = sighting_to_dict(make_sighting())
+
+    assert payload["camera_code"] == "CAM-01"
+    assert "camera_id" not in payload
 
 
 def test_serialised_payload_is_json_round_trippable() -> None:
@@ -82,7 +158,7 @@ def test_serialised_payload_is_json_round_trippable() -> None:
 
     restored = json.loads(json.dumps(payload))
 
-    assert restored["camera_id"] == "CAM-01"
+    assert restored["camera_code"] == "CAM-01"
     assert restored["local_track_id"] == 17
 
 
@@ -120,16 +196,20 @@ def test_jsonl_writes_one_parseable_line_per_sighting(tmp_path: Path) -> None:
     assert [json.loads(line)["id"] for line in lines] == ["a", "b"]
 
 
-def test_jsonl_every_line_carries_every_schema_column(tmp_path: Path) -> None:
+def test_jsonl_lines_validate_against_the_backend_ingest_model(
+    tmp_path: Path,
+) -> None:
+    """A JSONL line must be postable as-is, so the offline path stays replayable."""
     output_path = tmp_path / "CAM-01.jsonl"
-    columns = set(schema_sighting_columns())
+    ingest_model = load_backend_ingest_model()
 
     with JsonlIngestClient(output_path) as client:
         client.send(make_sighting())
 
     record = json.loads(output_path.read_text().strip())
 
-    assert set(record) == columns
+    validated = ingest_model.model_validate(record)
+    assert validated.camera_code == "CAM-01"
 
 
 def test_jsonl_appends_rather_than_truncating(tmp_path: Path) -> None:

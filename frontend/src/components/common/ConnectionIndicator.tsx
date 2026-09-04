@@ -12,7 +12,7 @@ interface ConnectionIndicatorProps {
 
 export const ConnectionIndicator: React.FC<ConnectionIndicatorProps> = ({
   status,
-  cameraCount = 4,
+  cameraCount = 0,
   indexSize = 154,
   lastUpdated,
 }) => {
@@ -41,7 +41,7 @@ export const ConnectionIndicator: React.FC<ConnectionIndicatorProps> = ({
       </div>
 
       <div className="hidden sm:flex items-center gap-2 text-[var(--text-secondary)] font-mono">
-        <span>{cameraCount} cameras</span>
+        <span>{cameraCount} {cameraCount === 1 ? 'camera' : 'cameras'}</span>
         <span className="text-[var(--border-strong)]">/</span>
         <span>{indexSize} vectors</span>
         {lastUpdated && (

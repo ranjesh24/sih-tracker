@@ -16,6 +16,24 @@ export const UploadPage: React.FC = () => {
   const [nextCamera, setNextCamera] = useState<string>(MOCK_CAMERAS[0]?.code ?? 'CAM-01');
   const { jobs, addJob, removeJob, updateJob, clearAll } = useUploadStore();
   const [running, setRunning] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const startNewBatch = useUploadStore(s => s.startNewBatch);
+
+  /** Clear this session's uploads and their derived sightings, then open a
+   *  fresh batch so the next clips cannot be confused with the old run. */
+  const handleStartNewSession = useCallback(async () => {
+    setResetting(true);
+    try {
+      const res = await fetch(`${BASE}/upload/session/reset`, { method: 'POST' });
+      if (!res.ok) console.warn('[upload] session reset failed', res.status);
+    } catch (err) {
+      console.warn('[upload] session reset failed', err);
+    } finally {
+      clearAll();
+      startNewBatch();
+      setResetting(false);
+    }
+  }, [clearAll, startNewBatch]);
 
   useEffect(() => {
     api.getCameras().then(setCameras);
@@ -64,6 +82,8 @@ export const UploadPage: React.FC = () => {
         const formData = new FormData();
         formData.append('video', job.file);
         formData.append('camera_code', job.cameraCode);
+        // Stated, not inferred: every clip in this session carries one batch id.
+        formData.append('batch_id', useUploadStore.getState().batchId);
 
         const res = await fetch(`${BASE}/upload/video`, { method: 'POST', body: formData });
         if (!res.ok) throw new Error(`Upload failed (${res.status})`);
@@ -202,12 +222,6 @@ export const UploadPage: React.FC = () => {
               >
                 View live wall
               </button>
-              <button
-                onClick={() => navigate('/sim')}
-                className="px-4 py-2 text-sm font-medium bg-[var(--surface-sunken)] text-[var(--accent-text)] border border-[var(--accent)] rounded-[var(--radius-sm)] hover:bg-[var(--accent-tint)] cursor-pointer"
-              >
-                View simulation
-              </button>
             </>
           )}
 
@@ -219,6 +233,16 @@ export const UploadPage: React.FC = () => {
               Clear all
             </button>
           )}
+
+          {/* Wipes the current session server-side, so a bad run can be reset
+              without dropping to a terminal. */}
+          <button
+            onClick={handleStartNewSession}
+            disabled={anyProcessing || resetting}
+            className="px-4 py-2 text-sm font-medium bg-[var(--surface-sunken)] text-[var(--status-rejected)] border border-[var(--status-rejected)]/40 rounded-[var(--radius-sm)] hover:bg-[var(--surface-hover)] cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {resetting ? 'Clearing…' : 'Start new session'}
+          </button>
         </div>
       </div>
     </div>

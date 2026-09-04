@@ -41,6 +41,29 @@ def init_db() -> None:
     import app.models  # noqa: F401  (registers tables)
 
     SQLModel.metadata.create_all(engine)
+    _add_missing_columns()
+
+
+# Columns added after the first databases were created. create_all() only makes
+# missing tables, never missing columns, so each is added here idempotently.
+_ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
+    ("sightings", "batch_id", "TEXT"),
+)
+
+
+def _add_missing_columns() -> None:
+    """Add post-hoc columns to an existing SQLite file, skipping ones present."""
+    with engine.connect() as connection:
+        for table, column, column_type in _ADDED_COLUMNS:
+            existing = {
+                row[1]
+                for row in connection.exec_driver_sql(f"PRAGMA table_info({table})")
+            }
+            if column not in existing:
+                connection.exec_driver_sql(
+                    f"ALTER TABLE {table} ADD COLUMN {column} {column_type}"
+                )
+        connection.commit()
 
 
 def get_session() -> Iterator[Session]:

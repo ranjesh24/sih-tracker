@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { api } from '../lib/api';
 import type { Sighting } from '../types/api';
-import { MOCK_SIGHTINGS } from '../mocks/mockData';
 
 export interface LiveEventItem {
   id: string;
@@ -20,68 +19,18 @@ export interface LiveEventItem {
 }
 
 export function usePollingSightings(intervalMs: number = 1500) {
-  const [sightings, setSightings] = useState<Sighting[]>(MOCK_SIGHTINGS);
+  const [sightings, setSightings] = useState<Sighting[]>([]);
   const [events, setEvents] = useState<LiveEventItem[]>([]);
   const [flashingCameraCode, setFlashingCameraCode] = useState<string | null>(null);
   const [isLive, setIsLive] = useState<boolean>(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(new Date());
-  const seenSightingIds = useRef<Set<string>>(new Set(MOCK_SIGHTINGS.map((s) => s.id)));
+  const seenSightingIds = useRef<Set<string>>(new Set());
   const flashTimeoutRef = useRef<number | null>(null);
 
-  // Initialize event feed with realistic pre-seeded events including gate rejection
-  useEffect(() => {
-    const initialEvents: LiveEventItem[] = [
-      {
-        id: 'evt-rej-1',
-        type: 'rejected',
-        timestamp: '2026-09-04T00:26:25Z',
-        cameraCode: 'CAM-02',
-        vehicleRef: '#A47F',
-        rejectionReason: 'TEMPORAL_TOO_FAST',
-        elapsedSeconds: 14,
-        minTransitSeconds: 312,
-        sightingId: 'sight-02',
-        vehicleId: 'veh-01',
-      },
-      {
-        id: 'evt-sight-3',
-        type: 'sighting',
-        timestamp: '2026-09-04T00:26:18Z',
-        cameraCode: 'CAM-03',
-        vehicleRef: '#A47F',
-        plateText: 'BR01AB1234',
-        method: 'VISUAL',
-        score: 0.84,
-        sightingId: 'sight-03',
-        vehicleId: 'veh-01',
-      },
-      {
-        id: 'evt-sight-2',
-        type: 'sighting',
-        timestamp: '2026-09-04T00:18:14Z',
-        cameraCode: 'CAM-02',
-        vehicleRef: '#A47F',
-        plateText: null,
-        method: 'VISUAL',
-        score: 0.88,
-        sightingId: 'sight-02',
-        vehicleId: 'veh-01',
-      },
-      {
-        id: 'evt-sight-1',
-        type: 'sighting',
-        timestamp: '2026-09-04T00:10:02Z',
-        cameraCode: 'CAM-01',
-        vehicleRef: '#A47F',
-        plateText: 'BR01AB1234',
-        method: 'PLATE_EXACT',
-        score: 1.0,
-        sightingId: 'sight-01',
-        vehicleId: 'veh-01',
-      },
-    ];
-    setEvents(initialEvents);
-  }, []);
+  // No pre-seeded events. The stream previously started with four fabricated
+  // entries naming CAM-01/02/03, which put cameras into the ingest feed that had
+  // no uploaded video and contradicted the wall. It now shows only what polling
+  // actually returns.
 
   const triggerFlash = useCallback((cameraCode: string) => {
     setFlashingCameraCode(cameraCode);
@@ -119,7 +68,7 @@ export function usePollingSightings(intervalMs: number = 1500) {
                 id: `evt-${s.id}-${Date.now()}`,
                 type: s.resolution_status === 'ambiguous' ? 'ambiguous' : 'sighting',
                 timestamp: s.first_frame_at,
-                cameraCode: s.camera_code || 'CAM-01',
+                cameraCode: s.camera_code ?? '—',
                 vehicleRef: s.vehicle_id ? `#${s.vehicle_id.slice(-4).toUpperCase()}` : '#NEW',
                 plateText: s.plate_text_norm,
                 method: s.match_method,

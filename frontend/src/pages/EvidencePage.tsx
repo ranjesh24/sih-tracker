@@ -1,13 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { api } from '../lib/api';
-import type { Vehicle, TrajectoryRead, SightingDetailRead } from '../types/api';
+import { api, staticAssetUrl } from '../lib/api';
+import { scopePoints } from '../lib/cameraScope';
+import type { Camera, Vehicle, TrajectoryRead, SightingDetailRead } from '../types/api';
 import { MatchExplanation } from '../components/evidence/MatchExplanation';
 import { PlateBadge } from '../components/ui/PlateBadge';
 import { FileSearch, ArrowLeft } from 'lucide-react';
 import { cn } from '../lib/cn';
 
-export const EvidencePage: React.FC = () => {
+interface EvidencePageProps {
+  /** Cameras with an uploaded video in the current batch, from App. The tab
+      strip is exactly this set, so it always agrees with the wall and the map. */
+  cameras: Camera[];
+}
+
+export const EvidencePage: React.FC<EvidencePageProps> = ({ cameras }) => {
   const { vehicleId = 'veh-01' } = useParams<{ vehicleId: string }>();
   const navigate = useNavigate();
 
@@ -22,17 +29,15 @@ export const EvidencePage: React.FC = () => {
       try {
         const [vehData, trajData] = await Promise.all([
           api.getVehicle(vehicleId),
-          api.getTrajectory(vehicleId),
+          api.getTrajectory(vehicleId, { allowMock: cameras.length === 0 }),
         ]);
         if (!isMounted) return;
         setVehicle(vehData);
         setTrajectory(trajData);
 
-        if (trajData.points.length > 1) {
-          setSelectedSightingId(trajData.points[1].sighting_id);
-        } else if (trajData.points.length > 0) {
-          setSelectedSightingId(trajData.points[0].sighting_id);
-        }
+        const scoped = scopePoints(trajData.points, cameras);
+        const initial = scoped.length > 1 ? scoped[1] : scoped[0];
+        if (initial) setSelectedSightingId(initial.sighting_id);
       } catch (err) {
         console.error(err);
       }
@@ -41,7 +46,7 @@ export const EvidencePage: React.FC = () => {
     return () => {
       isMounted = false;
     };
-  }, [vehicleId]);
+  }, [vehicleId, cameras]);
 
   useEffect(() => {
     let isMounted = true;
@@ -56,10 +61,44 @@ export const EvidencePage: React.FC = () => {
     };
   }, [selectedSightingId]);
 
-  const points = trajectory?.points || [];
+  // The crop lives on the trajectory point (per camera hop); fall back to the
+  // sighting's own stored path for a sighting opened outside a trajectory.
+  const [cropFailed, setCropFailed] = useState(false);
+  useEffect(() => {
+    setCropFailed(false);
+  }, [selectedSightingId]);
+
+  // Tabs come from the scoped set only: a sighting at a camera with no
+  // uploaded video is omitted rather than shown as a dead tab.
+  const points = scopePoints(trajectory?.points || [], cameras);
+  // If a new batch removes the selected camera, fall back to the first
+  // available tab rather than rendering a blank panel.
+  useEffect(() => {
+    if (points.length === 0) return;
+    if (!points.some((p) => p.sighting_id === selectedSightingId)) {
+      setSelectedSightingId(points[0].sighting_id);
+    }
+  }, [points, selectedSightingId]);
+
   const selectedIndex = points.findIndex((p) => p.sighting_id === selectedSightingId);
   const selectedPoint = selectedIndex >= 0 ? points[selectedIndex] : points[0] || null;
   const previousPoint = selectedIndex > 0 ? points[selectedIndex - 1] : null;
+  const cropUrl = staticAssetUrl(
+    selectedPoint?.crop_url ??
+      (sightingDetail?.crop_path ? `/static/${sightingDetail.crop_path}` : null)
+  );
+  const trackId = selectedPoint?.local_track_id ?? sightingDetail?.local_track_id ?? 88;
+
+  // Kept deliberately: an empty crop box is otherwise silent, and the cause is
+  // almost always upstream (no crop_path on the row, or a stale fixture).
+  useEffect(() => {
+    if (selectedSightingId && !cropUrl) {
+      console.warn(
+        `[evidence] no crop_url for sighting ${selectedSightingId}; ` +
+          'the row has no crop_path, or this is fixture data rather than a DB record.'
+      );
+    }
+  }, [selectedSightingId, cropUrl]);
 
   return (
     <div className="flex-1 flex flex-col h-full bg-[var(--surface-base)] overflow-y-auto select-none p-4 md:p-6">
@@ -127,24 +166,45 @@ export const EvidencePage: React.FC = () => {
                   Crop & Feature Extraction
                 </span>
                 <span className="text-xs font-mono text-[var(--accent-text)]">
-                  {selectedPoint?.camera_code || 'CAM-02'}
+                  {selectedPoint?.camera_code ?? '—'}
                 </span>
               </div>
 
               {/* Best shot image frame */}
               <div className="aspect-video w-full rounded-[var(--radius-md)] bg-[var(--surface-sunken)] border border-[var(--border-subtle)] flex flex-col items-center justify-center relative overflow-hidden">
-                <div className="flex flex-col items-center gap-2 text-[var(--text-muted)]">
-                  <div className="w-20 h-12 border-2 border-[var(--accent)] rounded bg-[var(--surface-base)] flex items-center justify-center font-mono font-bold text-xs text-[var(--text-primary)]">
-                    {selectedPoint?.camera_code}
+                {cropUrl && !cropFailed ? (
+                  <img
+                    src={cropUrl}
+                    alt={`Best-shot crop for tracklet ${trackId}`}
+                    onError={() => {
+                      console.warn(`[evidence] crop failed to load: ${cropUrl}`);
+                      setCropFailed(true);
+                    }}
+                    className="absolute inset-0 w-full h-full object-contain"
+                  />
+                ) : (
+                  <div className="flex flex-col items-center gap-2 text-[var(--text-muted)]">
+                    <div className="w-20 h-12 border-2 border-[var(--accent)] rounded bg-[var(--surface-base)] flex items-center justify-center font-mono font-bold text-xs text-[var(--text-primary)]">
+                      {selectedPoint?.camera_code}
+                    </div>
                   </div>
-                  <span className="font-mono text-xs">
-                    Tracklet Best Frame (ID: {sightingDetail?.local_track_id || 88})
-                  </span>
-                </div>
+                )}
+
+                <span className="absolute top-2 left-2 font-mono text-xs text-[var(--text-muted)] bg-black/70 px-1.5 py-0.5 rounded">
+                  Tracklet Best Frame (ID: {trackId})
+                </span>
 
                 <div className="absolute bottom-2 left-2 right-2 bg-black/80 px-2 py-1 rounded text-[11px] font-mono text-[var(--text-secondary)] flex justify-between">
-                  <span>CLASS: {sightingDetail?.vehicle_class || 'car'}</span>
-                  <span>CONF: {((sightingDetail?.detection_confidence || 0.95) * 100).toFixed(0)}%</span>
+                  <span>CLASS: {selectedPoint?.vehicle_class ?? sightingDetail?.vehicle_class ?? 'car'}</span>
+                  <span>
+                    CONF:{' '}
+                    {(
+                      (selectedPoint?.detection_confidence ??
+                        sightingDetail?.detection_confidence ??
+                        0.95) * 100
+                    ).toFixed(0)}
+                    %
+                  </span>
                 </div>
               </div>
 

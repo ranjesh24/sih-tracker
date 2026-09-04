@@ -5,17 +5,22 @@ import { EvidencePanel } from '../components/evidence/EvidencePanel';
 import { PlateBadge } from '../components/ui/PlateBadge';
 import { StatusBadge } from '../components/ui/StatusBadge';
 import { api } from '../lib/api';
+import { placeCameras, placePoints, scopePoints } from '../lib/cameraScope';
 import type { Camera, Vehicle, TrajectoryRead, SightingDetailRead } from '../types/api';
-import { MOCK_CAMERAS } from '../mocks/mockData';
 import { Clock, ChevronRight } from 'lucide-react';
 import { cn } from '../lib/cn';
 
-export const TrajectoryPage: React.FC = () => {
+interface TrajectoryPageProps {
+  /** Cameras with an uploaded video in the current batch. Supplied by App so
+      the map can never disagree with the live wall or the evidence tabs. */
+  cameras: Camera[];
+}
+
+export const TrajectoryPage: React.FC<TrajectoryPageProps> = ({ cameras }) => {
   const { vehicleId = 'veh-01' } = useParams<{ vehicleId: string }>();
 
   const [vehicle, setVehicle] = useState<Vehicle | null>(null);
   const [trajectory, setTrajectory] = useState<TrajectoryRead | null>(null);
-  const [cameras, setCameras] = useState<Camera[]>(MOCK_CAMERAS);
   const [selectedSightingId, setSelectedSightingId] = useState<string | null>(null);
   const [sightingDetail, setSightingDetail] = useState<SightingDetailRead | null>(null);
 
@@ -24,23 +29,20 @@ export const TrajectoryPage: React.FC = () => {
     let isMounted = true;
     async function loadData() {
       try {
-        const [vehData, trajData, camData] = await Promise.all([
+        const [vehData, trajData] = await Promise.all([
           api.getVehicle(vehicleId),
-          api.getTrajectory(vehicleId),
-          api.getCameras(),
+          // Mock points only when nothing has been uploaded; once any video
+          // exists the map shows real data only.
+          api.getTrajectory(vehicleId, { allowMock: cameras.length === 0 }),
         ]);
         if (!isMounted) return;
 
         setVehicle(vehData);
         setTrajectory(trajData);
-        setCameras(camData);
 
-        // Select the second sighting (or first) by default to show a multi-hop decision immediately
-        if (trajData.points.length > 1) {
-          setSelectedSightingId(trajData.points[1].sighting_id);
-        } else if (trajData.points.length > 0) {
-          setSelectedSightingId(trajData.points[0].sighting_id);
-        }
+        const scoped = scopePoints(trajData.points, cameras);
+        const initial = scoped.length > 1 ? scoped[1] : scoped[0];
+        if (initial) setSelectedSightingId(initial.sighting_id);
       } catch (err) {
         console.error('Failed to load vehicle trajectory:', err);
       }
@@ -49,7 +51,7 @@ export const TrajectoryPage: React.FC = () => {
     return () => {
       isMounted = false;
     };
-  }, [vehicleId]);
+  }, [vehicleId, cameras]);
 
   // Load sighting details when selected
   useEffect(() => {
@@ -67,8 +69,20 @@ export const TrajectoryPage: React.FC = () => {
     };
   }, [selectedSightingId]);
 
-  const points = trajectory?.points || [];
-  const hops = trajectory?.hops || [];
+  // Everything below renders from the scoped set: sightings at cameras that
+  // actually have an uploaded video, in timestamp order.
+  const points = scopePoints(trajectory?.points || [], cameras);
+  const placedPoints = placePoints(points, cameras);
+  const placedCameras = placeCameras(cameras);
+  const hops = (trajectory?.hops || []).slice(0, Math.max(points.length - 1, 0));
+
+  // A new batch can drop the selected camera; fall back to the first point.
+  useEffect(() => {
+    if (points.length === 0) return;
+    if (!points.some((p) => p.sighting_id === selectedSightingId)) {
+      setSelectedSightingId(points[0].sighting_id);
+    }
+  }, [points, selectedSightingId]);
 
   const selectedIndex = points.findIndex((p) => p.sighting_id === selectedSightingId);
   const selectedPoint = selectedIndex >= 0 ? points[selectedIndex] : points[0] || null;
@@ -112,8 +126,8 @@ export const TrajectoryPage: React.FC = () => {
         {/* Map Region (Fills top) */}
         <div className="flex-1 min-h-[340px] relative p-3">
           <TrajectoryMap
-            cameras={cameras}
-            points={points}
+            cameras={placedCameras}
+            points={placedPoints}
             hops={hops}
             selectedPointId={selectedSightingId}
             onSelectPoint={(id) => setSelectedSightingId(id)}

@@ -128,6 +128,12 @@ class Settings(BaseSettings):
     # --- Storage -------------------------------------------------------------
     CROP_STORAGE_PATH: Path = Path("./data/crops")
 
+    # Where best-shot crops are written for the backend to serve. The backend
+    # mounts its static/ directory at /static, so a crop written here is
+    # reachable at /static/crops/<name>.jpg with no copying step between the
+    # two processes.
+    BACKEND_STATIC_CROP_PATH: Path = Path("../backend/static/crops")
+
     @field_validator("TARGET_CLASS_IDS_CSV")
     @classmethod
     def _validate_class_ids_csv(cls, raw: str) -> str:

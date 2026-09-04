@@ -3,6 +3,101 @@ import type { MatchDecision } from '../../types/api';
 import { StatusBadge } from '../ui/StatusBadge';
 import { Route, XCircle } from 'lucide-react';
 
+
+/** Plain-language label for a gate rejection code. */
+const REJECTION_LABELS: Record<string, string> = {
+  TEMPORAL_TOO_FAST: 'Too fast to be possible',
+  SAME_CAMERA_TOO_SOON: 'Re-appeared too soon',
+  TEMPORAL_EXPIRED: 'Too much time passed',
+  NO_PATH: 'No road route between cameras',
+  BELOW_THRESHOLD: 'Not similar enough',
+  AMBIGUOUS_MARGIN: 'Too close to call',
+  OPERATOR_REJECTED: 'Rejected by an operator',
+  CLASS_MISMATCH: 'Different type of vehicle',
+};
+
+function rejectionLabel(reason?: string | null): string {
+  if (!reason) return 'Rejected';
+  return REJECTION_LABELS[reason] ?? reason.replace(/_/g, ' ').toLowerCase();
+}
+
+function percent(score?: number | null): string | null {
+  if (score === null || score === undefined) return null;
+  return `${Math.round(score * 100)}%`;
+}
+
+/** Implied average speed in km/h, or null when it cannot be derived.
+ *  Guards against a missing or zero distance/elapsed rather than dividing by zero. */
+function impliedSpeedKmh(distanceM?: number | null, elapsedSeconds?: number | null): number | null {
+  if (!distanceM || !elapsedSeconds || distanceM <= 0 || elapsedSeconds <= 0) return null;
+  return (distanceM / 1000) / (elapsedSeconds / 3600);
+}
+
+/** One or two plain sentences explaining why a candidate was ruled out.
+ *  Each reason code gets its own template. */
+function rejectionSentences(rej: MatchDecision): string {
+  const similar = percent(rej.visual_score);
+  const opener = similar ? `Looks ${similar} similar, but ` : '';
+  const elapsed = rej.elapsed_seconds;
+  const distanceKm =
+    rej.path_distance_m && rej.path_distance_m > 0 ? rej.path_distance_m / 1000 : null;
+
+  switch (rej.rejection_reason) {
+    case 'TEMPORAL_TOO_FAST': {
+      const speed = impliedSpeedKmh(rej.path_distance_m, elapsed);
+      if (distanceKm !== null && elapsed) {
+        const speedClause = speed
+          ? ` (about ${Math.round(speed).toLocaleString()} km/h)`
+          : '';
+        return `${opener}this vehicle would have had to cover ${distanceKm.toFixed(1)} km in ${elapsed} seconds${speedClause}. Ruled out as physically impossible.`;
+      }
+      if (elapsed && rej.min_transit_seconds) {
+        return `${opener}only ${elapsed} seconds passed, and the quickest possible trip between these cameras takes ${rej.min_transit_seconds} seconds. Ruled out as physically impossible.`;
+      }
+      return `${opener}the vehicle could not have travelled between these cameras that quickly. Ruled out as physically impossible.`;
+    }
+
+    case 'SAME_CAMERA_TOO_SOON': {
+      const minSeconds = rej.min_transit_seconds;
+      const gap = elapsed ? `just ${elapsed} seconds later` : 'again very shortly afterwards';
+      const rule = minSeconds
+        ? ` A vehicle cannot pass this camera twice in under ${minSeconds} seconds, so this match was rejected.`
+        : ' A vehicle cannot pass the same camera twice that quickly, so this match was rejected.';
+      return `Seen again at the same camera ${gap}.${rule}`;
+    }
+
+    case 'TEMPORAL_EXPIRED': {
+      const window = rej.max_transit_seconds;
+      if (elapsed && window) {
+        return `${opener}${elapsed} seconds passed, well beyond the ${window} seconds this trip should take. Too long a gap to treat as the same journey.`;
+      }
+      return `${opener}too much time passed between the two sightings to treat them as the same journey.`;
+    }
+
+    case 'NO_PATH':
+      return `${opener}there is no known road route between these two cameras, so the vehicle could not have made the trip.`;
+
+    case 'CLASS_MISMATCH':
+      return `${opener}the two sightings are different types of vehicle, so they cannot be the same one.`;
+
+    case 'BELOW_THRESHOLD':
+      return similar
+        ? `Only ${similar} similar, which is below the level needed to call it a match.`
+        : 'Not similar enough to call it a match.';
+
+    case 'AMBIGUOUS_MARGIN':
+      return `${opener}another candidate scored almost identically, so this match was too close to call.`;
+
+    case 'OPERATOR_REJECTED':
+      return 'An operator reviewed this candidate and rejected it.';
+
+    default:
+      return similar
+        ? `Looks ${similar} similar, but the spatio-temporal gate ruled this candidate out.`
+        : 'The spatio-temporal gate ruled this candidate out.';
+  }
+}
+
 interface MatchExplanationProps {
   decisions: MatchDecision[];
   cameraCode?: string;
@@ -11,8 +106,8 @@ interface MatchExplanationProps {
 
 export const MatchExplanation: React.FC<MatchExplanationProps> = ({
   decisions,
-  cameraCode = 'CAM-02',
-  fromCameraCode = 'CAM-01',
+  cameraCode = '—',
+  fromCameraCode = '—',
 }) => {
   // Accepted decision (top match)
   const acceptedDecision = decisions.find((d) => d.outcome === 'accepted') || decisions[0];
@@ -115,10 +210,12 @@ export const MatchExplanation: React.FC<MatchExplanationProps> = ({
           <div className="flex items-center gap-1.5">
             <XCircle className="w-3.5 h-3.5 text-[var(--status-rejected)]" />
             <span className="text-xs font-semibold text-[var(--text-primary)]">
-              Also considered ({rejectedDecisions.length})
+              Rejected matches ({rejectedDecisions.length})
             </span>
           </div>
-          <span className="text-[10px] text-[var(--text-muted)] font-mono">Spatio-temporal gate</span>
+          <span className="text-[10px] text-[var(--text-muted)] font-mono">
+            Blocked by the spatio-temporal gate
+          </span>
         </div>
 
         {rejectedDecisions.length === 0 ? (
@@ -139,33 +236,23 @@ export const MatchExplanation: React.FC<MatchExplanationProps> = ({
                         ? `#${rej.candidate_vehicle_id.slice(-4).toUpperCase()}`
                         : '#ALT-VEH'}
                     </span>
-                    {rej.visual_score && (
+                    {/* Explicit null check, not a truthiness test: a 0.00 score
+                        would otherwise render a stray "0" instead of the span. */}
+                    {percent(rej.visual_score) !== null && (
                       <span className="text-[10px] text-[var(--text-secondary)]">
-                        visual {rej.visual_score.toFixed(2)}
+                        visual {percent(rej.visual_score)}
                       </span>
                     )}
                   </div>
                   <span className="px-1.5 py-0.2 rounded bg-[var(--status-rejected-tint)] text-[var(--status-rejected)] font-semibold text-[10px]">
-                    {rej.rejection_reason || 'TEMPORAL_TOO_FAST'}
+                    {rejectionLabel(rej.rejection_reason)}
                   </span>
                 </div>
 
-                {/* Quantitative explanation of rejection reason */}
-                {rej.elapsed_seconds !== undefined && rej.min_transit_seconds !== undefined && (
-                  <div className="text-[10px] text-[var(--text-secondary)] mt-0.5 bg-[var(--surface-base)] p-1.5 rounded border border-[var(--border-subtle)]">
-                    <div className="text-[var(--status-rejected)] font-medium">
-                      Physically infeasible speed violation:
-                    </div>
-                    <div>
-                      {rej.elapsed_seconds}s elapsed vs minimum feasible {rej.min_transit_seconds}s
-                    </div>
-                    {rej.path_distance_m && (
-                      <div className="text-[var(--text-muted)]">
-                        {(rej.path_distance_m / 1000).toFixed(1)} km separation along road graph
-                      </div>
-                    )}
-                  </div>
-                )}
+                {/* Plain-language explanation, templated per rejection reason */}
+                <div className="text-[10px] leading-relaxed text-[var(--text-secondary)] mt-0.5 bg-[var(--surface-base)] p-1.5 rounded border border-[var(--border-subtle)]">
+                  {rejectionSentences(rej)}
+                </div>
               </div>
             ))}
           </div>

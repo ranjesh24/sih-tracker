@@ -19,6 +19,7 @@ from app.schemas.match_decision import MatchDecisionRead
 from app.schemas.vehicle import (
     TrajectoryHop,
     TrajectoryPoint,
+    static_crop_url,
     TrajectoryRead,
     VehicleRead,
 )
@@ -100,6 +101,12 @@ def get_trajectory(
                 lat=camera.latitude if camera else None,
                 lng=camera.longitude if camera else None,
                 timestamp=sighting.first_frame_at,
+                crop_url=static_crop_url(sighting.crop_path),
+                plate_text_norm=sighting.plate_text_norm,
+                plate_confidence=sighting.plate_confidence,
+                vehicle_class=sighting.vehicle_class,
+                detection_confidence=sighting.detection_confidence,
+                local_track_id=sighting.local_track_id,
             )
         )
         if camera is not None:

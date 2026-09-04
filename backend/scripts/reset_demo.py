@@ -19,7 +19,7 @@ from sqlmodel import Session  # noqa: E402
 
 import app.db.session as db_session  # noqa: E402
 from app.core.config import get_settings  # noqa: E402
-from app.models import MatchDecision, Sighting, Vehicle  # noqa: E402
+from app.models import MatchDecision, Sighting, Vehicle, Video  # noqa: E402
 
 
 def _clear_crops(crop_dir: Path) -> int:
@@ -43,9 +43,15 @@ def reset() -> dict:
         session.execute(delete(MatchDecision))
         session.execute(delete(Sighting))
         session.execute(delete(Vehicle))
+        # Videos too: otherwise the live wall keeps showing tiles for cameras
+        # whose footage and sightings have just been wiped.
+        session.execute(delete(Video))
         session.commit()
     crops_removed = _clear_crops(Path(get_settings().CROP_STORAGE_PATH))
-    return {"cleared": ["match_decisions", "sightings", "vehicles"], "crops_removed": crops_removed}
+    return {
+        "cleared": ["match_decisions", "sightings", "vehicles", "videos"],
+        "crops_removed": crops_removed,
+    }
 
 
 def main() -> None:

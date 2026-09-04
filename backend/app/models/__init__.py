@@ -6,6 +6,7 @@ from app.models.match_decision import MatchDecision
 from app.models.refresh_token import RefreshToken
 from app.models.sighting import Sighting
 from app.models.user import User
+from app.models.video import Video
 from app.models.vehicle import Vehicle
 
 __all__ = [
@@ -16,5 +17,6 @@ __all__ = [
     "RefreshToken",
     "Sighting",
     "User",
+    "Video",
     "Vehicle",
 ]

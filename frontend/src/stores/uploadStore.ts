@@ -9,6 +9,12 @@ export interface CameraJob {
 }
 
 interface UploadStore {
+  /** Identifies this upload session. Sent with every video so the backend
+   *  records batch membership as a fact rather than guessing it from upload
+   *  timestamps — the guess merged separate sessions and left stale cameras
+   *  rendering on the live wall. */
+  batchId: string;
+  startNewBatch: () => string;
   jobs: CameraJob[];
   addJob: (cameraCode: string, file: File) => void;
   removeJob: (cameraCode: string) => void;
@@ -17,7 +23,19 @@ interface UploadStore {
   getVideoUrl: (cameraCode: string) => string | null;
 }
 
+function newBatchId(): string {
+  return globalThis.crypto?.randomUUID
+    ? globalThis.crypto.randomUUID()
+    : `batch-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 export const useUploadStore = create<UploadStore>((set, get) => ({
+  batchId: newBatchId(),
+  startNewBatch: () => {
+    const batchId = newBatchId();
+    set({ batchId, jobs: [] });
+    return batchId;
+  },
   jobs: [],
   addJob: (cameraCode, file) =>
     set((s) => ({

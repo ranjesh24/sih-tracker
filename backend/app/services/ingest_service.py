@@ -15,7 +15,7 @@ import numpy as np
 from app.core.config import get_settings
 from app.core.exceptions import CameraNotFoundError, MargError
 from app.models import Camera, MatchDecision, Sighting
-from app.repositories import camera_repo
+from app.repositories import camera_repo, video_repo
 from app.schemas.ingest import IngestSighting
 from app.services import plate_matcher
 from app.services.camera_graph import CameraGraph
@@ -81,8 +81,12 @@ def ingest_one(
             np.asarray(payload.embedding, dtype=np.float32)
         )
 
+    # Which upload session produced this sighting, recorded rather than inferred.
+    current_batch_id = video_repo.get_current_batch_id(session)
+
     sighting = Sighting(
         camera_id=camera.id,
+        batch_id=current_batch_id,
         local_track_id=payload.local_track_id,
         first_frame_at=payload.first_frame_at,
         last_frame_at=payload.last_frame_at,

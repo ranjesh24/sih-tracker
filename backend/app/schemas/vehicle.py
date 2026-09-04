@@ -47,6 +47,18 @@ class VehicleRead(BaseModel):
         )
 
 
+def static_crop_url(crop_path: Optional[str]) -> Optional[str]:
+    """Map a stored crop_path to its public /static URL, or None.
+
+    The pipeline writes crops under backend/static/ and stores the path
+    relative to it, so serving is a prefix join. None means no crop was
+    written for that sighting and the UI falls back to its placeholder.
+    """
+    if not crop_path:
+        return None
+    return f"/static/{crop_path.lstrip('/')}"
+
+
 class TrajectoryPoint(BaseModel):
     """One stop on a reconstructed trajectory."""
 
@@ -56,6 +68,12 @@ class TrajectoryPoint(BaseModel):
     lat: Optional[float]
     lng: Optional[float]
     timestamp: str
+    crop_url: Optional[str] = None
+    plate_text_norm: Optional[str] = None
+    plate_confidence: Optional[float] = None
+    vehicle_class: Optional[str] = None
+    detection_confidence: Optional[float] = None
+    local_track_id: Optional[int] = None
 
 
 class TrajectoryHop(BaseModel):

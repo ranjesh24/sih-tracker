@@ -33,6 +33,8 @@ export interface Camera {
   last_seen_at?: string | null;
   created_at: string;
   updated_at: string;
+  /** Set only by the has_video filter; the live wall plays this directly. */
+  video_url?: string | null;
 }
 
 export interface Vehicle {
@@ -122,6 +124,9 @@ export interface TrajectoryPoint {
   plate_crop_url?: string | null;
   plate_text_norm?: string | null;
   plate_confidence?: number | null;
+  vehicle_class?: VehicleClass | null;
+  detection_confidence?: number | null;
+  local_track_id?: number | null;
 }
 
 export interface TrajectoryHop {

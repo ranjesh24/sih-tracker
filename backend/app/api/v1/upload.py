@@ -11,12 +11,14 @@ from typing import Optional
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from sqlmodel import Session
+from sqlalchemy import delete
+from sqlmodel import Session, select
 
 from app.api.deps import get_session
 from app.core.config import get_settings
 from app.core.exceptions import NotFoundError
-from app.repositories import camera_repo
+from app.models import MatchDecision, Sighting, Vehicle
+from app.repositories import camera_repo, video_repo
 
 logger = logging.getLogger("marg.upload")
 router = APIRouter(prefix="/upload", tags=["upload"])
@@ -45,13 +47,30 @@ class JobStatus(BaseModel):
 
 _jobs: dict[str, dict] = {}
 
+# Batch membership is stated by the client, never inferred.
+#
+# It used to be derived from a 600-second sliding window: an upload joined the
+# newest batch if that batch's most recent video was under 600s old. Two genuinely
+# separate sessions minutes apart therefore merged into one batch, and a camera
+# from the earlier run kept rendering on the live wall with stale footage. A time
+# window cannot distinguish "same session, slow operator" from "new session
+# shortly after", so the guess is removed rather than retuned.
+
 
 @router.post("/video", response_model=UploadResult)
 async def upload_video(
     video: UploadFile = File(...),
     camera_code: str = Form(...),
+    batch_id: Optional[str] = Form(default=None),
     session: Session = Depends(get_session),
 ) -> UploadResult:
+    """Accept one video for a camera and start the pipeline worker.
+
+    Args:
+        batch_id: The upload session this video belongs to, supplied by the
+            client. Omitting it opens a fresh single-video batch, so a direct
+            curl never silently joins whatever session ran last.
+    """
     camera = camera_repo.get_by_code(session, camera_code)
     if camera is None:
         raise NotFoundError(f"No camera with code {camera_code}")
@@ -66,10 +85,26 @@ async def upload_video(
 
     logger.info("Video saved: %s (%s)", video_path, camera_code)
 
+    # Record the camera-to-video association. The live wall filters on this
+    # table, so a camera only appears once a video has actually been uploaded
+    # for it — seeded sightings do not make a camera look live.
+    video_repo.create_video(
+        session,
+        camera_id=camera.id,
+        filename=video_filename,
+        batch_id=batch_id or str(uuid.uuid4()),
+        job_id=job_id,
+    )
+
     worker_script = ML_PIPELINE_DIR / "scripts" / "run_worker.py"
     # ML pipeline needs Python with cv2/torch/ultralytics/easyocr installed.
     # The backend venv (3.14) doesn't have those — use the system Python that does.
+    # The ml-pipeline venv is checked first and is the portable answer: it sits
+    # inside the repo, so it resolves on any machine and any OS. The absolute
+    # Windows paths below stay as fallbacks for the setup that has no venv.
     ml_python_candidates = [
+        ML_PIPELINE_DIR / "venv" / "bin" / "python",  # POSIX venv layout
+        ML_PIPELINE_DIR / "venv" / "Scripts" / "python.exe",  # Windows venv layout
         Path(r"C:\Users\BIT\AppData\Local\Programs\Python\Python312\python.exe"),
         Path(r"C:\Python312\python.exe"),
     ]
@@ -170,6 +205,64 @@ def get_job_logs(job_id: str) -> dict:
     if log_path.exists():
         output = log_path.read_text(encoding="utf-8", errors="replace")
     return {"job_id": job_id, "logs": output}
+
+
+class SessionResetResult(BaseModel):
+    batch_id: Optional[str]
+    videos_removed: int
+    sightings_removed: int
+
+
+@router.post("/session/reset", response_model=SessionResetResult)
+def reset_session(session: Session = Depends(get_session)) -> SessionResetResult:
+    """Clear uploaded videos and every sighting they produced.
+
+    All batches are removed, not just the newest: deleting only the current one
+    would promote the previous batch to "current" and resurrect its cameras on
+    the live wall, which is the opposite of what "clear uploads" means.
+
+    Membership is read from the recorded ``batch_id`` on each row, never guessed
+    from timestamps. Seeded demo sightings carry no batch id, so the prepared
+    #A47F trajectory survives an operator resetting a bad run.
+    """
+    batch_id = video_repo.get_current_batch_id(session)
+    videos_removed = video_repo.delete_all(session)
+
+    stale = session.exec(
+        select(Sighting).where(Sighting.batch_id.is_not(None))  # type: ignore[union-attr]
+    ).all()
+    for sighting in stale:
+        session.execute(
+            delete(MatchDecision).where(MatchDecision.sighting_id == sighting.id)
+        )
+        session.delete(sighting)
+    session.commit()
+
+    # Drop vehicles left with no sightings. Without this every reset stranded
+    # the vehicles those uploads created, and the pile pushed the seeded demo
+    # vehicle off the first page of /vehicles, so the UI selected an orphan.
+    orphans = session.exec(
+        select(Vehicle).where(
+            ~select(Sighting.id)
+            .where(Sighting.vehicle_id == Vehicle.id)
+            .exists()
+        )
+    ).all()
+    for vehicle in orphans:
+        session.delete(vehicle)
+    session.commit()
+
+    logger.info(
+        "Upload session reset: last_batch=%s videos=%d sightings=%d",
+        batch_id,
+        videos_removed,
+        len(stale),
+    )
+    return SessionResetResult(
+        batch_id=batch_id,
+        videos_removed=videos_removed,
+        sightings_removed=len(stale),
+    )
 
 
 @router.get("/serve/{filename}")

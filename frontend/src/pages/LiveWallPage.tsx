@@ -3,8 +3,18 @@ import type { Camera } from '../types/api';
 import { CameraTile } from '../components/camera/CameraTile';
 import { EventFeedRow } from '../components/camera/EventFeedRow';
 import type { LiveEventItem } from '../hooks/usePollingSightings';
-import { Video, AlertCircle } from 'lucide-react';
+import { Video, AlertCircle, Upload } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { useUploadStore } from '../stores/uploadStore';
+import { staticAssetUrl } from '../lib/api';
+
+/** Column count follows the number of live feeds: 1 full width, 2 side by side,
+ *  3 or more in three columns. Tiles are never padded out with empty slots. */
+function gridColumnsClass(feedCount: number): string {
+  if (feedCount <= 1) return 'grid-cols-1';
+  if (feedCount === 2) return 'grid-cols-1 md:grid-cols-2';
+  return 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3';
+}
 
 interface LiveWallPageProps {
   cameras: Camera[];
@@ -40,7 +50,7 @@ export const LiveWallPage: React.FC<LiveWallPageProps> = ({
               Live camera feeds
             </h1>
             <span className="text-xs font-mono text-[var(--text-secondary)] bg-[var(--surface-sunken)] px-2 py-0.5 rounded border border-[var(--border-subtle)]">
-              {cameras.length} Active
+              {cameras.length} {cameras.length === 1 ? 'feed' : 'feeds'}
             </span>
           </div>
 
@@ -57,17 +67,24 @@ export const LiveWallPage: React.FC<LiveWallPageProps> = ({
           )}
         </div>
 
-        {/* Camera Grid */}
+        {/* Camera Grid — one tile per uploaded video, never an empty slot */}
         {cameras.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center py-12 text-center">
             <Video className="w-10 h-10 text-[var(--text-muted)] mb-3" />
-            <p className="text-sm font-medium text-[var(--text-primary)]">No cameras registered yet.</p>
-            <p className="text-xs text-[var(--text-secondary)] mt-1">
-              Start the pipeline with <code className="font-mono text-[var(--accent-text)]">./scripts/demo.sh</code> to begin processing.
+            <p className="text-sm font-medium text-[var(--text-primary)]">No video uploaded yet.</p>
+            <p className="text-xs text-[var(--text-secondary)] mt-1 max-w-[320px]">
+              Upload a clip and the camera it was recorded on appears here as a live feed.
             </p>
+            <Link
+              to="/upload"
+              className="mt-4 flex items-center gap-1.5 px-4 py-2 text-sm font-medium bg-[var(--accent)] text-[var(--text-inverse)] rounded-[var(--radius-sm)] hover:bg-[var(--accent-hover)] cursor-pointer"
+            >
+              <Upload className="w-4 h-4" />
+              Upload video
+            </Link>
           </div>
         ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className={`grid ${gridColumnsClass(cameras.length)} gap-4`}>
             {cameras.map((camera) => (
               <CameraTile
                 key={camera.id}
@@ -75,7 +92,9 @@ export const LiveWallPage: React.FC<LiveWallPageProps> = ({
                 isFlashing={flashingCameraCode === camera.code}
                 isSelected={selectedCameraCode === camera.code}
                 onClick={() => handleTileClick(camera.code)}
-                videoUrl={getVideoUrl(camera.code)}
+                /* Local blob first for instant playback right after upload,
+                   then the server copy so the feed survives a page reload. */
+                videoUrl={getVideoUrl(camera.code) ?? staticAssetUrl(camera.video_url)}
               />
             ))}
           </div>
