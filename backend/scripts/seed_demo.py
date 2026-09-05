@@ -34,6 +34,7 @@ from sqlalchemy import delete  # noqa: E402
 from sqlmodel import Session, col, select  # noqa: E402
 
 import app.db.session as db_session  # noqa: E402
+from app.core.config import get_settings  # noqa: E402
 from app.models import Camera, MatchDecision, Sighting, Vehicle, Video  # noqa: E402
 from app.repositories import video_repo  # noqa: E402
 
@@ -165,7 +166,39 @@ if not wrote:
 """
 
 # The demo vehicle. A single car passing three junctions in sequence.
+# Retained only to label the fallback placeholder image; no sighting or vehicle
+# carries a plate any more.
 DEMO_PLATE = "BR01AB1234"
+
+# Per-hop appearance and temporal scores, in the range OSNet actually produces
+# on this footage: measured same-vehicle cosine sits at 0.65-0.75, not the 0.88
+# the seed used to claim. Indexed by the hop's destination camera.
+DEMO_HOP_SCORES: dict[str, tuple[float, float]] = {
+    # to_camera: (visual, temporal)
+    "CAM-02": (0.68, 0.93),
+    "CAM-03": (0.71, 0.89),
+}
+
+# Rejected candidates sit at or slightly above the accepted visual scores. That
+# is the whole point of those cards: appearance alone could not separate these
+# vehicles, and the gate is what ruled them out.
+DEMO_REJECTED_VISUAL_TOO_FAST = 0.74
+DEMO_REJECTED_VISUAL_SAME_CAMERA = 0.70
+
+
+def fused_score(visual: float, temporal: float) -> float:
+    """Fuse exactly as the resolver's visual tier does.
+
+    Mirrors ``identity_resolver`` rather than storing a number by hand, so the
+    three values on screen are always arithmetically consistent:
+
+        fused = W_VISUAL * visual + W_TEMPORAL * temporal
+
+    There is no plate term — the visual tier has none — and the weights are read
+    from config rather than restated here, so this cannot drift if they change.
+    """
+    settings = get_settings()
+    return settings.W_VISUAL * visual + settings.W_TEMPORAL * temporal
 DEMO_REF = "#A47F"
 
 # Camera order and the gap, in seconds, from the previous camera. Both gaps sit
@@ -291,9 +324,13 @@ def seed(session: Session) -> dict:
 
     vehicle = Vehicle(
         display_ref=DEMO_REF,
-        canonical_plate=DEMO_PLATE,
-        plate_confidence=0.94,
-        plate_is_valid=True,
+        # The demo footage shows a car with no legible plate, so the seeded
+        # vehicle carries none. The UI then renders its existing "no plate"
+        # placeholder everywhere, exactly as it does for a real plateless
+        # sighting — no special-casing needed.
+        canonical_plate=None,
+        plate_confidence=None,
+        plate_is_valid=False,
         vehicle_class="car",
         sighting_count=len(DEMO_HOPS),
         camera_count=len(DEMO_HOPS),
@@ -303,6 +340,8 @@ def seed(session: Session) -> dict:
     session.commit()
     session.refresh(vehicle)
 
+    camera_code_by_id = {c.id: c.code for c in cameras.values()}
+    hop_summaries: list[tuple[str, int, float, float, float]] = []
     crop_reports: list[str] = []
     seen_digests: set[str] = set()
     sightings: list[Sighting] = []
@@ -328,15 +367,18 @@ def seed(session: Session) -> dict:
             bbox_h=210,
             detection_confidence=0.93 - index * 0.03,
             vehicle_class="car",
-            plate_text_raw=DEMO_PLATE if index != 1 else "BR01A81234",
-            # Camera 2 is the plate failure the visual tier has to bridge.
-            plate_text_norm=DEMO_PLATE if index != 1 else None,
-            plate_confidence=0.94 if index != 1 else 0.31,
-            plate_is_valid=index != 1,
+            # No plate is read at any camera: every hop is bridged by the
+            # visual tier plus the gate, which is what the footage shows.
+            plate_text_raw=None,
+            plate_text_norm=None,
+            plate_confidence=None,
+            plate_is_valid=False,
             embedding_dim=512,
             resolution_status="matched" if index > 0 else "new_vehicle",
-            match_method=("PLATE_EXACT" if index == 2 else "VISUAL") if index > 0 else "NEW",
-            match_score=0.91 if index > 0 else None,
+            match_method="VISUAL" if index > 0 else "NEW",
+            match_score=(
+                fused_score(*DEMO_HOP_SCORES[camera_code]) if index > 0 else None
+            ),
         )
         session.add(sighting)
         session.commit()
@@ -370,17 +412,22 @@ def seed(session: Session) -> dict:
                 - datetime.fromisoformat(previous.first_frame_at.replace("Z", "+00:00"))
             ).total_seconds()
         )
+        to_code = camera_code_by_id[current.camera_id]
+        hop_visual, hop_temporal = DEMO_HOP_SCORES[to_code]
+        hop_fused = fused_score(hop_visual, hop_temporal)
+        hop_summaries.append((to_code, gap, hop_visual, hop_temporal, hop_fused))
         session.add(
             MatchDecision(
                 sighting_id=current.id,
                 candidate_vehicle_id=vehicle.id,
                 candidate_sighting_id=previous.id,
-                tier="plate" if current.match_method == "PLATE_EXACT" else "visual",
+                tier="visual",
                 outcome="accepted",
-                visual_score=0.88,
-                plate_score=1.0 if current.match_method == "PLATE_EXACT" else None,
-                temporal_score=0.95,
-                fused_score=0.91,
+                visual_score=hop_visual,
+                plate_score=None,
+                temporal_score=hop_temporal,
+                # Computed, never written by hand.
+                fused_score=hop_fused,
                 gate_passed=True,
                 elapsed_seconds=gap,
                 min_transit_seconds=180,
@@ -399,9 +446,9 @@ def seed(session: Session) -> dict:
             candidate_vehicle_id=None,
             tier="visual",
             outcome="rejected",
-            visual_score=0.91,
+            visual_score=DEMO_REJECTED_VISUAL_TOO_FAST,
             temporal_score=0.0,
-            fused_score=0.42,
+            fused_score=fused_score(DEMO_REJECTED_VISUAL_TOO_FAST, 0.0),
             gate_passed=False,
             rejection_reason="TEMPORAL_TOO_FAST",
             elapsed_seconds=14,
@@ -417,9 +464,9 @@ def seed(session: Session) -> dict:
             candidate_vehicle_id=None,
             tier="visual",
             outcome="rejected",
-            visual_score=0.86,
+            visual_score=DEMO_REJECTED_VISUAL_SAME_CAMERA,
             temporal_score=0.0,
-            fused_score=0.39,
+            fused_score=fused_score(DEMO_REJECTED_VISUAL_SAME_CAMERA, 0.0),
             gate_passed=False,
             rejection_reason="SAME_CAMERA_TOO_SOON",
             elapsed_seconds=8,
@@ -435,6 +482,7 @@ def seed(session: Session) -> dict:
         "display_ref": vehicle.display_ref,
         "sightings": [(s.id, s.crop_path) for s in sightings],
         "crops": crop_reports,
+        "hops": hop_summaries,
     }
 
 
@@ -461,6 +509,28 @@ def main() -> None:
     print("  sightings:")
     for sighting_id, crop_path in summary["sightings"]:
         print(f"    {sighting_id}  crop_path={crop_path}")
+
+    settings = get_settings()
+    print()
+    print("  accepted hops (fused computed, not stored by hand):")
+    for to_code, gap, visual, temporal, fused in summary["hops"]:
+        print(
+            f"    -> {to_code} ({gap}s): visual={visual:.2f} temporal={temporal:.2f}"
+            f"  fused = {settings.W_VISUAL}*{visual} + {settings.W_TEMPORAL}*{temporal}"
+            f" = {fused:.4f}"
+            f"  [threshold 0.72 {'PASS' if fused > 0.72 else 'FAIL'}]"
+        )
+    print()
+    print("  rejected candidates:")
+    for label, visual in (
+        ("TEMPORAL_TOO_FAST", DEMO_REJECTED_VISUAL_TOO_FAST),
+        ("SAME_CAMERA_TOO_SOON", DEMO_REJECTED_VISUAL_SAME_CAMERA),
+    ):
+        print(
+            f"    {label:22} visual={visual:.2f}"
+            f"  fused={fused_score(visual, 0.0):.4f}"
+            f"  (sentence shows {round(visual * 100)}%)"
+        )
 
 
 if __name__ == "__main__":
